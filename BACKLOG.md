@@ -16,9 +16,10 @@ you're actively working on in In Progress, add follow-ups to Todo.
 - [x] Tamper-evident ledger — Append-only hash chain with integrity verification
 - [x] HTTP API — Express server with partner auth (x-api-key), health endpoints, all documented routes
 - [x] Health endpoint — `GET /health` returns liveness, adapter status, config warnings
-- [x] 212 tests covering all components — unit, integration, HTTP contract tests
+- [x] 251 tests covering all components — unit, integration, HTTP contract tests, config schema validation, response contract tests
 - [x] CI pipeline — npm test, tsc --noEmit, eslint all pass
 - [x] Configuration & portability: add config file (JSON) support, make e-ID providers configurable
+- [x] Config file schema validation and documentation — JSON Schema (config.schema.json) with AJV tests, HTTP response schemas with contract tests
 
 ## In Progress
 
@@ -34,6 +35,5 @@ you're actively working on in In Progress, add follow-ups to Todo.
 - [ ] React + Vite compliance dashboard (CloudFront static hosting)
 - [ ] AWS Lambda packaging (Node 20, esbuild bundle)
 - [ ] API Gateway + Cognito JWT integration
-- [ ] Config file schema validation and documentation
 
 (End of file - total 60 lines)
