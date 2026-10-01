@@ -17,6 +17,7 @@ import type { KycRepository } from '../store/repository';
 import type { Clock } from '../util/clock';
 import { newSubmissionId } from '../util/id';
 import { recordSerializer } from './recordSerializer';
+import { ConsentService } from './consentService';
 
 /**
  * KYC ingestion service (README component 1).
@@ -39,6 +40,7 @@ export interface KycServiceDeps {
   providers: EidProviderRegistry;
   clock: Clock;
   credentialHashSalt: string;
+  consentService: ConsentService;
   /** Structured decision log; every payload is redacted before it is written. */
   logger?: Pick<Console, 'info'>;
 }
@@ -170,6 +172,15 @@ export class KycService {
     };
 
     const stored = await this.deps.repository.put(record);
+
+    // Grant/update consent record for this subject
+    await this.deps.consentService.grantConsent({
+      marketplaceId,
+      subjectId: input.subject.subjectId,
+      purposes: ['risk_scoring', 'ledger_anchoring'],
+      ip: input.consent.ip,
+      userAgent: input.consent.userAgent,
+    });
 
     this.logDecision(recordSerializer.toLogSummary(stored));
 

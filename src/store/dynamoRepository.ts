@@ -4,6 +4,7 @@ import {
   PutCommand,
   GetCommand,
   QueryCommand as DocQueryCommand,
+  DeleteCommand,
 } from '@aws-sdk/lib-dynamodb';
 import type { KycRecord, ListingDecision, KycRepository, ListOptions } from './repository';
 import { canonicalClone } from '../util/canonical';
@@ -175,6 +176,51 @@ export class DynamoKycRepository implements KycRepository {
     );
 
     return result.Count ?? 0;
+  }
+
+  async deleteBySubmissionId(marketplaceId: string, submissionId: string): Promise<boolean> {
+    const pk = submissionPk(marketplaceId, submissionId);
+    const sk = submissionSk(submissionId);
+
+    const result = await this.docClient.send(
+      new DeleteCommand({
+        TableName: this.tableName,
+        Key: { pk, sk },
+        ReturnValues: 'ALL_OLD',
+      }),
+    );
+
+    return !!result.Attributes;
+  }
+
+  async deleteBySubjectId(marketplaceId: string, subjectId: string): Promise<number> {
+    const gsi1Pk = subjectGsi1Pk(marketplaceId, subjectId);
+
+    const result = await this.docClient.send(
+      new DocQueryCommand({
+        TableName: this.tableName,
+        IndexName: 'GSI1',
+        KeyConditionExpression: 'gsi1Pk = :pk',
+        ExpressionAttributeValues: { ':pk': gsi1Pk },
+        ProjectionExpression: 'pk, sk',
+      }),
+    );
+
+    if (!result.Items || result.Items.length === 0) {
+      return 0;
+    }
+
+    // Delete each record by its pk/sk
+    for (const item of result.Items) {
+      await this.docClient.send(
+        new DeleteCommand({
+          TableName: this.tableName,
+          Key: { pk: item.pk, sk: item.sk },
+        }),
+      );
+    }
+
+    return result.Items.length;
   }
 
   private itemToRecord(item: Record<string, unknown>): KycRecord {

@@ -7,6 +7,8 @@ import { EnvelopeCipher, parseHexKey, type CipherKeyring } from './security/encr
 import { KycService } from './services/kycService';
 import { ListingGate } from './services/listingGate';
 import { ReportService } from './services/reportService';
+import { RetentionService, type RetentionPolicy, createDefaultRetentionPolicy } from './services/retentionService';
+import { ConsentService, type ConsentPurpose } from './services/consentService';
 import { InMemoryKycRepository, type KycRepository } from './store/repository';
 import { createDynamoRepository } from './store/dynamoRepository';
 import { systemClock, type Clock } from './util/clock';
@@ -29,6 +31,8 @@ export interface Container {
   kycService: KycService;
   listingGate: ListingGate;
   reportService: ReportService;
+  retentionService: RetentionService;
+  consentService: ConsentService;
   deps: AppDeps;
 }
 
@@ -39,8 +43,11 @@ export interface BuildOptions {
   repository?: KycRepository;
   ledger?: LedgerChain;
   riskEngine?: RiskEngine;
-  logger?: Pick<Console, 'info'>;
+  logger?: Pick<Console, 'info' | 'warn' | 'error'>;
   startedAt?: Date;
+  retentionPolicy?: Partial<RetentionPolicy>;
+  consentVersion?: string;
+  consentMandatoryPurposes?: ConsentPurpose[];
 }
 
 export function buildContainer(options: BuildOptions = {}): Container {
@@ -53,6 +60,24 @@ export function buildContainer(options: BuildOptions = {}): Container {
   const riskEngine =
     options.riskEngine ?? new RiskEngine(new SanctionsScreener(undefined, config.sanctionsList));
 
+  const listingGate = new ListingGate(repository, clock);
+  const reportService = new ReportService(repository, clock, config.reportSigningKey);
+
+  const retentionService = new RetentionService({
+    policy: { ...createDefaultRetentionPolicy(), ...options.retentionPolicy },
+    repository,
+    clock,
+    logger: options.logger,
+  });
+
+  const consentService = new ConsentService({
+    repository,
+    clock,
+    currentVersion: options.consentVersion ?? '1.0.0',
+    mandatoryPurposes: options.consentMandatoryPurposes ?? [],
+    logger: options.logger,
+  });
+
   const kycService = new KycService({
     repository,
     ledger,
@@ -61,11 +86,9 @@ export function buildContainer(options: BuildOptions = {}): Container {
     providers,
     clock,
     credentialHashSalt: config.credentialHashSalt,
+    consentService,
     logger: options.logger,
   });
-
-  const listingGate = new ListingGate(repository, clock);
-  const reportService = new ReportService(repository, clock, config.reportSigningKey);
 
   const deps: AppDeps = {
     config,
@@ -73,6 +96,8 @@ export function buildContainer(options: BuildOptions = {}): Container {
     kycService,
     listingGate,
     reportService,
+    retentionService,
+    consentService,
     repository,
     ledger,
     providerIds: providers.ids(),
@@ -90,6 +115,8 @@ export function buildContainer(options: BuildOptions = {}): Container {
     kycService,
     listingGate,
     reportService,
+    retentionService,
+    consentService,
     deps,
   };
 }

@@ -20,6 +20,10 @@ export interface KycRepository {
   listByMarketplace(marketplaceId: string, options?: ListOptions): Promise<KycRecord[]>;
   saveListingDecision(decision: ListingDecision): Promise<ListingDecision>;
   countListingDecisions(marketplaceId: string, blocked: boolean): Promise<number>;
+  /** Deletes a single KYC record by submission id. Returns true if a record was deleted. */
+  deleteBySubmissionId(marketplaceId: string, submissionId: string): Promise<boolean>;
+  /** Deletes all KYC records for a subject (right to erasure). Returns the count of deleted records. */
+  deleteBySubjectId(marketplaceId: string, subjectId: string): Promise<number>;
 }
 
 export interface ListOptions {
@@ -75,6 +79,28 @@ export class InMemoryKycRepository implements KycRepository {
     return this.listingDecisions.filter(
       (decision) => decision.marketplaceId === marketplaceId && decision.allowed === !blocked,
     ).length;
+  }
+
+  async deleteBySubmissionId(marketplaceId: string, submissionId: string): Promise<boolean> {
+    const key = submissionKey(marketplaceId, submissionId);
+    const existed = this.bySubmissionId.has(key);
+    if (existed) {
+      this.bySubmissionId.delete(key);
+    }
+    return existed;
+  }
+
+  async deleteBySubjectId(marketplaceId: string, subjectId: string): Promise<number> {
+    const keysToDelete: string[] = [];
+    for (const [key, record] of this.bySubmissionId.entries()) {
+      if (record.marketplaceId === marketplaceId && record.subjectId === subjectId) {
+        keysToDelete.push(key);
+      }
+    }
+    for (const key of keysToDelete) {
+      this.bySubmissionId.delete(key);
+    }
+    return keysToDelete.length;
   }
 }
 

@@ -284,12 +284,16 @@ describe('KycService.submit — input validation', () => {
 describe('KycService decision logging', () => {
   it('logs an auditable, PII-free summary of every decision', async () => {
     const info = jest.fn();
-    const container = buildContainer({ config: testConfig(), clock: fixedClock(TEST_NOW), logger: { info } });
+    const warn = jest.fn();
+    const error = jest.fn();
+    const container = buildContainer({ config: testConfig(), clock: fixedClock(TEST_NOW), logger: { info, warn, error } });
 
     await container.kycService.submit(TEST_MARKETPLACE, healthySubmission());
 
-    expect(info).toHaveBeenCalledTimes(1);
-    const [message, summary] = info.mock.calls[0] as [string, Record<string, unknown>];
+    // KYC service logs once; consent service also logs, so find the KYC log entry
+    const kycLogCalls = info.mock.calls.filter((call) => call[0] === '[kyc] submission evaluated');
+    expect(kycLogCalls).toHaveLength(1);
+    const [message, summary] = kycLogCalls[0] as [string, Record<string, unknown>];
     expect(message).toBe('[kyc] submission evaluated');
     expect(summary).toMatchObject({
       submissionId: 'kyc_submission_0001',
@@ -309,12 +313,16 @@ describe('KycService decision logging', () => {
 
   it('records the reason codes that caused an escalation', async () => {
     const info = jest.fn();
-    const container = buildContainer({ config: testConfig(), clock: fixedClock(TEST_NOW), logger: { info } });
+    const warn = jest.fn();
+    const error = jest.fn();
+    const container = buildContainer({ config: testConfig(), clock: fixedClock(TEST_NOW), logger: { info, warn, error } });
     await container.kycService.submit(
       TEST_MARKETPLACE,
       healthySubmission({ claims: { politicallyExposed: true } }),
     );
-    const summary = info.mock.calls[0][1] as Record<string, unknown>;
+    const kycLogCalls = info.mock.calls.filter((call) => call[0] === '[kyc] submission evaluated');
+    expect(kycLogCalls).toHaveLength(1);
+    const summary = kycLogCalls[0][1] as Record<string, unknown>;
     expect(summary.status).toBe('review');
     expect(summary.reasonCodes).toEqual(['PEP_DECLARED', 'SOURCE_OF_FUNDS_UNKNOWN']);
   });

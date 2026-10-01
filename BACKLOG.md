@@ -22,6 +22,12 @@ you're actively working on in In Progress, add follow-ups to Todo.
 - [x] Config file schema validation and documentation — JSON Schema (config.schema.json) with AJV tests, HTTP response schemas with contract tests
 - [x] DynamoDB repository adapter (replace InMemoryKycRepository for production) — `src/store/dynamoRepository.ts`, config schema, container wiring, 12 new tests (263 total)
 - [x] Centralized PII-free record serializer — `src/services/recordSerializer.ts` consolidates 3-4 duplicated transformations, 17 new tests (284 total)
+- [x] Data retention service with configurable policies — `src/services/retentionService.ts`, TTL enforcement, cleanup preview, 10 new tests
+- [x] Consent management with withdrawal & audit trail — `src/services/consentService.ts`, mandatory/optional purposes, versioned history, 14 new tests
+- [x] GDPR right-to-erasure endpoint — `POST /v1/subjects/:subjectId/erasure-request` with legal hold checks
+- [x] Compliance disclaimers & privacy notice — `src/services/disclaimers.ts`, embedded in all API responses and reports, 10 new tests
+- [x] Repository delete methods — `deleteBySubjectId`/`deleteBySubmissionId` for both InMemory and DynamoDB adapters
+- [x] 344 tests total (60 new) — unit, integration, HTTP contract tests for all new compliance endpoints
 
 ## In Progress
 
@@ -36,5 +42,8 @@ you're actively working on in In Progress, add follow-ups to Todo.
 - [ ] React + Vite compliance dashboard (CloudFront static hosting)
 - [ ] AWS Lambda packaging (Node 20, esbuild bundle)
 - [ ] API Gateway + Cognito JWT integration
+- [ ] Automated retention cleanup scheduler (Lambda + EventBridge)
+- [ ] Consent versioning & re-consent flow for policy updates
+- [ ] Data portability endpoint (GDPR Art. 20) — export subject data
 
 (End of file - total 60 lines)

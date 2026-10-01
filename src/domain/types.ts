@@ -73,6 +73,7 @@ export interface KycSubmissionInput {
     granted: boolean;
     capturedAt: string;
     ip?: string;
+    userAgent?: string;
   };
   listingId?: string;
 }
