@@ -1,5 +1,5 @@
 import { loadConfig, type AppConfig } from './config';
-import { EidProviderRegistry, EidasGatewayProvider, FranceConnectProvider } from './identity/eidProvider';
+import { EidProviderRegistry, EidasGatewayProvider, FranceConnectProvider, type EidProvider } from './identity/eidProvider';
 import { LedgerChain } from './ledger/chain';
 import { RiskEngine } from './risk/engine';
 import { SanctionsScreener } from './risk/sanctions';
@@ -47,10 +47,7 @@ export function buildContainer(options: BuildOptions = {}): Container {
   const clock = options.clock ?? systemClock;
   const repository = options.repository ?? new InMemoryKycRepository();
   const ledger = options.ledger ?? new LedgerChain();
-  const providers = new EidProviderRegistry([
-    new EidasGatewayProvider(config.eidSecrets.eidas),
-    new FranceConnectProvider(config.eidSecrets.franceconnect),
-  ]);
+  const providers = buildProviderRegistry(config);
   const cipher = new EnvelopeCipher(buildKeyring(config));
   const riskEngine =
     options.riskEngine ?? new RiskEngine(new SanctionsScreener(undefined, config.sanctionsList));
@@ -102,6 +99,21 @@ export function buildKeyring(config: AppConfig): CipherKeyring {
     keys.set(config.masterKeyId, parseHexKey(config.masterKeyHex, config.masterKeyId));
   }
   return { activeKeyId: config.masterKeyId, keys };
+}
+
+function buildProviderRegistry(config: AppConfig): EidProviderRegistry {
+  const providers: EidProvider[] = [];
+  for (const providerId of config.enabledEidProviders) {
+    if (providerId === 'eidas-gateway') {
+      providers.push(new EidasGatewayProvider(config.eidSecrets.eidas));
+    } else if (providerId === 'franceconnect') {
+      providers.push(new FranceConnectProvider(config.eidSecrets.franceconnect));
+    }
+  }
+  if (providers.length === 0) {
+    throw new Error('No e-ID providers enabled — at least one must be configured');
+  }
+  return new EidProviderRegistry(providers);
 }
 
 /** Convenience helper for tests and the server: build the configured Express app. */

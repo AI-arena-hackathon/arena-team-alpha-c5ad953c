@@ -1,11 +1,16 @@
 import { z } from 'zod';
 import { parseHexKey } from './security/encryption';
 import { sha256Hex } from './util/id';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 
 /**
  * Environment configuration. Secrets are read from the process environment only
  * (see .env.example); nothing is hard-coded, and the service refuses to start in
  * production when a secret is missing rather than falling back to a default.
+ * 
+ * Configuration can also be loaded from a JSON file specified by KYC_CONFIG_FILE.
+ * Environment variables take precedence over file values.
  */
 
 const hexKey = z
@@ -36,6 +41,13 @@ const envSchema = z.object({
   EID_FRANCE_CONNECT_SECRET: z.string().optional(),
 
   SANCTIONS_LIST: z.string().default('eu-consolidated'),
+
+  // Enabled e-ID providers (comma-separated: eidas-gateway,franceconnect)
+  // Defaults to both in development; in production at least one must be explicitly enabled.
+  ENABLED_EID_PROVIDERS: z.string().optional(),
+
+  // Config file support
+  KYC_CONFIG_FILE: z.string().optional(),
 });
 
 export interface PartnerCredential {
@@ -54,6 +66,8 @@ export interface AppConfig {
   reportSigningKey: string;
   eidSecrets: { eidas: string; franceconnect: string };
   sanctionsList: string;
+  /** Enabled e-ID provider IDs (e.g., ['eidas-gateway', 'franceconnect']). */
+  enabledEidProviders: string[];
   /** Warnings surfaced by /health so operators know a dev default is in use. */
   warnings: string[];
 }
@@ -87,15 +101,61 @@ function requiredSecret(
   return '';
 }
 
+/** Load and parse the JSON config file if KYC_CONFIG_FILE is set. */
+function loadConfigFile(env: NodeJS.ProcessEnv): Record<string, string> {
+  const configFile = env.KYC_CONFIG_FILE;
+  if (!configFile) return {};
+
+  const absolutePath = resolve(configFile);
+  try {
+    const content = readFileSync(absolutePath, 'utf8');
+    const parsed = JSON.parse(content);
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+      throw new Error('Config file must contain a JSON object');
+    }
+    // Flatten to string key-value pairs for merging with env
+    const flat: Record<string, string> = {};
+    for (const [key, value] of Object.entries(parsed)) {
+      if (value !== null && value !== undefined) {
+        flat[key] = String(value);
+      }
+    }
+    return flat;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      throw new Error(`Config file not found: ${absolutePath}`);
+    }
+    if (error instanceof SyntaxError) {
+      throw new Error(`Config file is not valid JSON: ${absolutePath}`);
+    }
+    throw error;
+  }
+}
+
+/** Merge config file values into env, with env vars taking precedence. */
+function mergeConfigFile(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const fileConfig = loadConfigFile(env);
+  const merged = { ...env };
+  for (const [key, value] of Object.entries(fileConfig)) {
+    if (!(key in merged)) {
+      merged[key] = value;
+    }
+  }
+  return merged;
+}
+
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
-  const parsed = envSchema.parse(env);
+  // Load config file first, then merge env on top (env wins)
+  const mergedEnv = mergeConfigFile(env);
+  const parsed = envSchema.parse(mergedEnv);
   const warnings: string[] = [];
 
   const masterKeyHex = parsed.KYC_MASTER_KEY ?? (parsed.NODE_ENV === 'production' ? null : DEV_MASTER_KEY);
   if (!masterKeyHex && parsed.NODE_ENV === 'production') {
     throw new Error('KYC_MASTER_KEY must be set in production');
   }
-  if (!parsed.KYC_MASTER_KEY) {
+  if (!parsed.KYC_MASTER_KEY && !mergedEnv.KYC_CONFIG_FILE) {
+    // Only warn if not provided via config file either
     warnings.push('KYC_MASTER_KEY not set — using a development-only placeholder key');
   }
 
@@ -111,6 +171,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     throw new Error('PARTNER_API_KEYS must list at least one partner key in production');
   }
   const partners = configuredPartners.length > 0 ? configuredPartners : developmentPartners(warnings);
+
+  // Parse enabled e-ID providers
+  const enabledEidProviders = parseEnabledEidProviders(parsed.ENABLED_EID_PROVIDERS, production, warnings);
 
   return {
     port: parsed.PORT,
@@ -132,8 +195,31 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
         'dev-franceconnect-secret',
     },
     sanctionsList: parsed.SANCTIONS_LIST,
+    enabledEidProviders,
     warnings,
   };
+}
+
+function parseEnabledEidProviders(raw: string | undefined, isProduction: boolean, warnings: string[]): string[] {
+  const knownProviders = ['eidas-gateway', 'franceconnect'];
+  if (raw) {
+    const enabled = raw.split(',').map(s => s.trim()).filter(Boolean);
+    for (const provider of enabled) {
+      if (!knownProviders.includes(provider)) {
+        throw new Error(`Unknown e-ID provider: ${provider}. Known: ${knownProviders.join(', ')}`);
+      }
+    }
+    if (enabled.length === 0) {
+      throw new Error('ENABLED_EID_PROVIDERS must list at least one provider');
+    }
+    return enabled;
+  }
+  // Default: both in development; production requires explicit config
+  if (isProduction) {
+    throw new Error('ENABLED_EID_PROVIDERS must be set in production (e.g., "eidas-gateway,franceconnect")');
+  }
+  warnings.push('ENABLED_EID_PROVIDERS not set — enabling all providers for development');
+  return knownProviders;
 }
 
 function parsePastKeys(raw: string): Map<string, Buffer> {
