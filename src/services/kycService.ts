@@ -13,10 +13,10 @@ import {
   digestOf,
   EnvelopeCipher,
 } from '../security/encryption';
-import { redactPii } from '../security/redaction';
 import type { KycRepository } from '../store/repository';
 import type { Clock } from '../util/clock';
 import { newSubmissionId } from '../util/id';
+import { recordSerializer } from './recordSerializer';
 
 /**
  * KYC ingestion service (README component 1).
@@ -171,19 +171,7 @@ export class KycService {
 
     const stored = await this.deps.repository.put(record);
 
-    this.logDecision({
-      submissionId,
-      marketplaceId,
-      subjectId: input.subject.subjectId,
-      status,
-      decision: risk.decision,
-      riskScore: risk.score,
-      riskBand: risk.band,
-      reasonCodes: risk.features.map((item) => item.code),
-      sanctionsHits: risk.sanctionsHits.length,
-      ledgerHash: anchor.hash,
-      evaluatedAt: now.toISOString(),
-    });
+    this.logDecision(recordSerializer.toLogSummary(stored));
 
     // Sanctions matches are surfaced to the partner as a separate notice so a
     // freeze workflow can subscribe to them without polling every submission.
@@ -211,9 +199,8 @@ export class KycService {
     return this.deps.repository.listBySubject(marketplaceId, subjectId);
   }
 
-  /** Never logs names, dates of birth, documents or wallets — see redaction.ts. */
   private logDecision(summary: Record<string, unknown>): void {
-    this.deps.logger?.info('[kyc] submission evaluated', redactPii(summary));
+    this.deps.logger?.info('[kyc] submission evaluated', summary);
   }
 
   private verifyIdentity(input: KycSubmissionInput): IdentityVerificationResult {

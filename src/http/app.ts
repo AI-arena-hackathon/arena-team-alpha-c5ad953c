@@ -16,6 +16,7 @@ import {
   submissionSchema,
   subjectParamSchema,
 } from './schemas';
+import { recordSerializer } from '../services/recordSerializer';
 
 export interface AppDeps {
   config: AppConfig;
@@ -89,18 +90,7 @@ export function createApp(deps: AppDeps): Express {
         subjectId: result.record.subjectId,
         status: result.record.status,
         decision: result.record.decision,
-        risk: {
-          score: result.record.risk.score,
-          band: result.record.risk.band,
-          modelVersion: result.record.risk.modelVersion,
-          reasons: result.record.risk.features.map((item) => ({
-            code: item.code,
-            label: item.label,
-            weight: item.weight,
-            detail: item.detail,
-          })),
-          sanctionsHits: result.record.risk.sanctionsHits,
-        },
+        risk: recordSerializer.serializeRisk(result.record.risk),
         identity: result.record.identity,
         credentialDigest: result.record.credentialDigest,
         ledger: result.ledgerAnchor,
@@ -119,7 +109,7 @@ export function createApp(deps: AppDeps): Express {
       if (!record) {
         throw new HttpError(404, 'not_found', `no KYC submission "${submissionId}"`);
       }
-      res.json(toPublicRecord(record));
+      res.json(recordSerializer.toPublicRecord(record));
     }),
   );
 
@@ -133,7 +123,7 @@ export function createApp(deps: AppDeps): Express {
         subjectId,
         submissions: history.length,
         currentStatus: history[history.length - 1]?.status ?? 'unknown',
-        history: history.map(toPublicRecord),
+        history: history.map((r) => recordSerializer.toPublicRecord(r)),
       });
     }),
   );
@@ -181,31 +171,6 @@ export function createApp(deps: AppDeps): Express {
   app.use(errorHandler());
 
   return app;
-}
-
-/** Strips the encrypted envelope: partners never receive ciphertext they cannot use. */
-function toPublicRecord(record: import('../domain/types').KycRecord) {
-  return {
-    submissionId: record.submissionId,
-    subjectId: record.subjectId,
-    ...(record.listingId ? { listingId: record.listingId } : {}),
-    status: record.status,
-    decision: record.decision,
-    risk: {
-      score: record.risk.score,
-      band: record.risk.band,
-      reasons: record.risk.features,
-      sanctionsHits: record.risk.sanctionsHits,
-      modelVersion: record.risk.modelVersion,
-    },
-    identity: record.identity,
-    credentialDigest: record.credentialDigest,
-    ledgerAnchorHash: record.ledgerAnchorHash,
-    consentCapturedAt: record.consentCapturedAt,
-    submittedAt: record.submittedAt,
-    evaluatedAt: record.evaluatedAt,
-    evidenceStored: 'encrypted' as const,
-  };
 }
 
 function partnerOf(req: Request): string {

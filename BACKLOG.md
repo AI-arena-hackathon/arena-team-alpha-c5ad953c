@@ -21,6 +21,7 @@ you're actively working on in In Progress, add follow-ups to Todo.
 - [x] Configuration & portability: add config file (JSON) support, make e-ID providers configurable
 - [x] Config file schema validation and documentation — JSON Schema (config.schema.json) with AJV tests, HTTP response schemas with contract tests
 - [x] DynamoDB repository adapter (replace InMemoryKycRepository for production) — `src/store/dynamoRepository.ts`, config schema, container wiring, 12 new tests (263 total)
+- [x] Centralized PII-free record serializer — `src/services/recordSerializer.ts` consolidates 3-4 duplicated transformations, 17 new tests (284 total)
 
 ## In Progress
 
