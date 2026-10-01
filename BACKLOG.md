@@ -20,6 +20,7 @@ you're actively working on in In Progress, add follow-ups to Todo.
 - [x] CI pipeline — npm test, tsc --noEmit, eslint all pass
 - [x] Configuration & portability: add config file (JSON) support, make e-ID providers configurable
 - [x] Config file schema validation and documentation — JSON Schema (config.schema.json) with AJV tests, HTTP response schemas with contract tests
+- [x] DynamoDB repository adapter (replace InMemoryKycRepository for production) — `src/store/dynamoRepository.ts`, config schema, container wiring, 12 new tests (263 total)
 
 ## In Progress
 
@@ -27,7 +28,6 @@ you're actively working on in In Progress, add follow-ups to Todo.
 
 ## Todo
 
-- [ ] DynamoDB repository adapter (replace InMemoryKycRepository for production)
 - [ ] Polygon zk-EVM anchoring adapter (replace hash chain for production)
 - [ ] ECDSA P-256 signed PDF reports (replace HMAC-SHA256 JSON)
 - [ ] Real eIDAS PKI/JWKS validator (replace shared-secret HMAC)

@@ -8,6 +8,7 @@ import { KycService } from './services/kycService';
 import { ListingGate } from './services/listingGate';
 import { ReportService } from './services/reportService';
 import { InMemoryKycRepository, type KycRepository } from './store/repository';
+import { createDynamoRepository } from './store/dynamoRepository';
 import { systemClock, type Clock } from './util/clock';
 import { createApp, type AppDeps } from './http/app';
 
@@ -45,7 +46,7 @@ export interface BuildOptions {
 export function buildContainer(options: BuildOptions = {}): Container {
   const config = options.config ?? loadConfig(options.env ?? process.env);
   const clock = options.clock ?? systemClock;
-  const repository = options.repository ?? new InMemoryKycRepository();
+  const repository = options.repository ?? buildRepository(config);
   const ledger = options.ledger ?? new LedgerChain();
   const providers = buildProviderRegistry(config);
   const cipher = new EnvelopeCipher(buildKeyring(config));
@@ -91,6 +92,17 @@ export function buildContainer(options: BuildOptions = {}): Container {
     reportService,
     deps,
   };
+}
+
+function buildRepository(config: AppConfig): KycRepository {
+  if (config.dynamodbTable) {
+    return createDynamoRepository({
+      tableName: config.dynamodbTable,
+      region: config.dynamodbRegion ?? undefined,
+      endpoint: config.dynamodbEndpoint ?? undefined,
+    });
+  }
+  return new InMemoryKycRepository();
 }
 
 export function buildKeyring(config: AppConfig): CipherKeyring {

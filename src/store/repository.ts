@@ -12,6 +12,7 @@ import { canonicalClone } from '../util/canonical';
  * (used by tests and local runs); the DynamoDB adapter is a drop-in replacement
  * because every read here goes through a named access pattern.
  */
+export type { KycRecord, ListingDecision } from '../domain/types';
 export interface KycRepository {
   put(record: KycRecord): Promise<KycRecord>;
   getBySubmissionId(marketplaceId: string, submissionId: string): Promise<KycRecord | undefined>;

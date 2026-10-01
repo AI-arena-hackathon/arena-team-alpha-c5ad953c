@@ -48,6 +48,11 @@ const envSchema = z.object({
 
   // Config file support
   KYC_CONFIG_FILE: z.string().optional(),
+
+  // DynamoDB configuration (for production repository)
+  KYC_DYNAMODB_TABLE: z.string().optional(),
+  KYC_DYNAMODB_REGION: z.string().optional(),
+  KYC_DYNAMODB_ENDPOINT: z.string().optional(),
 });
 
 export interface PartnerCredential {
@@ -70,6 +75,12 @@ export interface AppConfig {
   enabledEidProviders: string[];
   /** Warnings surfaced by /health so operators know a dev default is in use. */
   warnings: string[];
+  /** DynamoDB table name for the KYC repository (production). */
+  dynamodbTable: string | null;
+  /** DynamoDB region (defaults to AWS default region chain). */
+  dynamodbRegion: string | null;
+  /** DynamoDB endpoint override (for local testing with DynamoDB Local). */
+  dynamodbEndpoint: string | null;
 }
 
 const DEV_MASTER_KEY = '0'.repeat(63) + '1';
@@ -175,6 +186,15 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   // Parse enabled e-ID providers
   const enabledEidProviders = parseEnabledEidProviders(parsed.ENABLED_EID_PROVIDERS, production, warnings);
 
+  // DynamoDB configuration
+  const dynamodbTable = parsed.KYC_DYNAMODB_TABLE ?? null;
+  const dynamodbRegion = parsed.KYC_DYNAMODB_REGION ?? null;
+  const dynamodbEndpoint = parsed.KYC_DYNAMODB_ENDPOINT ?? null;
+
+  if (production && !dynamodbTable) {
+    warnings.push('KYC_DYNAMODB_TABLE not set — using in-memory repository (not suitable for production)');
+  }
+
   return {
     port: parsed.PORT,
     nodeEnv: parsed.NODE_ENV,
@@ -197,6 +217,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     sanctionsList: parsed.SANCTIONS_LIST,
     enabledEidProviders,
     warnings,
+    dynamodbTable,
+    dynamodbRegion,
+    dynamodbEndpoint,
   };
 }
 

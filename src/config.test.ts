@@ -85,9 +85,13 @@ describe('loadConfig', () => {
   });
 
   it('boots in production with every secret present', () => {
-    const config = loadConfig(env({ NODE_ENV: 'production' }));
+    const config = loadConfig(env({
+      NODE_ENV: 'production',
+      KYC_DYNAMODB_TABLE: 'test-kyc-table',
+    }));
     expect(config.isProduction).toBe(true);
     expect(config.warnings).toEqual([]);
+    expect(config.dynamodbTable).toBe('test-kyc-table');
   });
 
   it('applies documented defaults', () => {
