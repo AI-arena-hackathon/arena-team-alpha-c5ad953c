@@ -74,6 +74,43 @@
     "KYC_CONFIG_FILE": {
       "type": "string",
       "description": "Path to this config file (self-referential, only used by the process environment, not read from the file itself)"
+    },
+    "KYC_DYNAMODB_TABLE": {
+      "type": "string",
+      "description": "DynamoDB table name for the KYC repository (production). Required in production."
+    },
+    "KYC_DYNAMODB_REGION": {
+      "type": "string",
+      "description": "DynamoDB region (defaults to AWS default region chain)"
+    },
+    "KYC_DYNAMODB_ENDPOINT": {
+      "type": "string",
+      "description": "DynamoDB endpoint override (for local testing with DynamoDB Local)"
+    },
+    "KYC_POLYGON_RPC_URL": {
+      "type": "string",
+      "pattern": "^https?://.+",
+      "description": "Polygon zk-EVM RPC endpoint URL (e.g., https://zkevm-rpc.com). Required for Polygon anchoring in production."
+    },
+    "KYC_POLYGON_PRIVATE_KEY": {
+      "type": "string",
+      "pattern": "^[0-9a-fA-F]{64}$",
+      "description": "Private key for the Polygon anchoring wallet as 64 hex characters (32 bytes). Required for Polygon anchoring in production."
+    },
+    "KYC_POLYGON_CONTRACT_ADDRESS": {
+      "type": "string",
+      "pattern": "^0x[a-fA-F0-9]{40}$",
+      "description": "Address of the deployed anchor registry contract on Polygon zk-EVM. Required for Polygon anchoring in production."
+    },
+    "KYC_POLYGON_CHAIN_ID": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Polygon zk-EVM chain ID (1101 for mainnet, 1442 for testnet)."
+    },
+    "KYC_POLYGON_GAS_LIMIT": {
+      "type": "integer",
+      "minimum": 21000,
+      "description": "Gas limit for anchor transactions (default: 100000)."
     }
   },
   "required": [],
@@ -90,7 +127,12 @@
       "EID_EIDAS_SECRET": "dev-eidas-secret",
       "EID_FRANCE_CONNECT_SECRET": "dev-franceconnect-secret",
       "SANCTIONS_LIST": "eu-consolidated",
-      "ENABLED_EID_PROVIDERS": "eidas-gateway,franceconnect"
+      "ENABLED_EID_PROVIDERS": "eidas-gateway,franceconnect",
+      "KYC_POLYGON_RPC_URL": "https://rpc.cardona.zkevm-rpc.com",
+      "KYC_POLYGON_PRIVATE_KEY": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "KYC_POLYGON_CONTRACT_ADDRESS": "0x1234567890123456789012345678901234567890",
+      "KYC_POLYGON_CHAIN_ID": 1442,
+      "KYC_POLYGON_GAS_LIMIT": 100000
     },
     {
       "PORT": 3000,
@@ -104,7 +146,12 @@
       "EID_EIDAS_SECRET": "prod-eidas-gateway-shared-secret-2025",
       "EID_FRANCE_CONNECT_SECRET": "prod-franceconnect-shared-secret-2025",
       "SANCTIONS_LIST": "eu-consolidated",
-      "ENABLED_EID_PROVIDERS": "eidas-gateway,franceconnect"
+      "ENABLED_EID_PROVIDERS": "eidas-gateway,franceconnect",
+      "KYC_POLYGON_RPC_URL": "https://zkevm-rpc.com",
+      "KYC_POLYGON_PRIVATE_KEY": "c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3d4",
+      "KYC_POLYGON_CONTRACT_ADDRESS": "0xabcdefabcdefabcdefabcdefabcdefabcdefabcd",
+      "KYC_POLYGON_CHAIN_ID": 1101,
+      "KYC_POLYGON_GAS_LIMIT": 100000
     }
   ]
 }

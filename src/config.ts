@@ -53,6 +53,13 @@ const envSchema = z.object({
   KYC_DYNAMODB_TABLE: z.string().optional(),
   KYC_DYNAMODB_REGION: z.string().optional(),
   KYC_DYNAMODB_ENDPOINT: z.string().optional(),
+
+  // Polygon zk-EVM anchoring (production ledger)
+  KYC_POLYGON_RPC_URL: z.string().url().optional(),
+  KYC_POLYGON_PRIVATE_KEY: hexKey.optional(),
+  KYC_POLYGON_CONTRACT_ADDRESS: z.string().regex(/^0x[a-fA-F0-9]{40}$/).optional(),
+  KYC_POLYGON_CHAIN_ID: z.coerce.number().int().positive().optional(),
+  KYC_POLYGON_GAS_LIMIT: z.coerce.number().int().positive().optional(),
 });
 
 export interface PartnerCredential {
@@ -81,6 +88,14 @@ export interface AppConfig {
   dynamodbRegion: string | null;
   /** DynamoDB endpoint override (for local testing with DynamoDB Local). */
   dynamodbEndpoint: string | null;
+  /** Polygon zk-EVM anchoring configuration. */
+  polygon: {
+    rpcUrl: string | null;
+    privateKey: string | null;
+    contractAddress: string | null;
+    chainId: number | null;
+    gasLimit: number | null;
+  };
 }
 
 const DEV_MASTER_KEY = '0'.repeat(63) + '1';
@@ -195,6 +210,19 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     warnings.push('KYC_DYNAMODB_TABLE not set — using in-memory repository (not suitable for production)');
   }
 
+  // Polygon configuration
+  const polygonRpcUrl = parsed.KYC_POLYGON_RPC_URL ?? null;
+  const polygonPrivateKey = parsed.KYC_POLYGON_PRIVATE_KEY ?? null;
+  const polygonContractAddress = parsed.KYC_POLYGON_CONTRACT_ADDRESS ?? null;
+  const polygonChainId = parsed.KYC_POLYGON_CHAIN_ID ?? null;
+  const polygonGasLimit = parsed.KYC_POLYGON_GAS_LIMIT ?? null;
+
+  if (production && (polygonRpcUrl || polygonPrivateKey || polygonContractAddress)) {
+    if (!polygonRpcUrl) warnings.push('KYC_POLYGON_RPC_URL not set — Polygon anchoring incomplete');
+    if (!polygonPrivateKey) warnings.push('KYC_POLYGON_PRIVATE_KEY not set — Polygon anchoring incomplete');
+    if (!polygonContractAddress) warnings.push('KYC_POLYGON_CONTRACT_ADDRESS not set — Polygon anchoring incomplete');
+  }
+
   return {
     port: parsed.PORT,
     nodeEnv: parsed.NODE_ENV,
@@ -220,6 +248,13 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     dynamodbTable,
     dynamodbRegion,
     dynamodbEndpoint,
+    polygon: {
+      rpcUrl: polygonRpcUrl,
+      privateKey: polygonPrivateKey,
+      contractAddress: polygonContractAddress,
+      chainId: polygonChainId,
+      gasLimit: polygonGasLimit,
+    },
   };
 }
 

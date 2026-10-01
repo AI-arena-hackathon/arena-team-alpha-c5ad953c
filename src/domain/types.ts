@@ -6,6 +6,25 @@ import type { EncryptedEnvelope } from '../security/encryption';
  * is PII-free and therefore safe to anchor, report on and log.
  */
 
+export interface AnchorInput {
+  type: LedgerAnchor['type'];
+  subjectId: string;
+  submissionId: string;
+  marketplaceId: string;
+  credentialDigest: string;
+  decision: LedgerAnchor['decision'];
+  riskScore: number;
+  createdAt: string;
+}
+
+export interface ChainVerification {
+  valid: boolean;
+  length: number;
+  headHash: string;
+  brokenAtIndex: number | null;
+  detail: string;
+}
+
 export type DocumentType = 'passport' | 'national_id' | 'drivers_license';
 
 export type Chain = 'polygon' | 'polygon-zkevm' | 'ethereum';

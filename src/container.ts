@@ -1,6 +1,8 @@
 import { loadConfig, type AppConfig } from './config';
 import { EidProviderRegistry, EidasGatewayProvider, FranceConnectProvider, type EidProvider } from './identity/eidProvider';
 import { LedgerChain } from './ledger/chain';
+import { PolygonAdapter } from './ledger/polygonAdapter';
+import type { LedgerAdapter } from './ledger/adapter';
 import { RiskEngine } from './risk/engine';
 import { SanctionsScreener } from './risk/sanctions';
 import { EnvelopeCipher, parseHexKey, type CipherKeyring } from './security/encryption';
@@ -24,7 +26,7 @@ export interface Container {
   config: AppConfig;
   clock: Clock;
   repository: KycRepository;
-  ledger: LedgerChain;
+  ledger: LedgerAdapter;
   riskEngine: RiskEngine;
   cipher: EnvelopeCipher;
   providers: EidProviderRegistry;
@@ -41,7 +43,7 @@ export interface BuildOptions {
   env?: NodeJS.ProcessEnv;
   clock?: Clock;
   repository?: KycRepository;
-  ledger?: LedgerChain;
+  ledger?: LedgerAdapter;
   riskEngine?: RiskEngine;
   logger?: Pick<Console, 'info' | 'warn' | 'error'>;
   startedAt?: Date;
@@ -54,7 +56,7 @@ export function buildContainer(options: BuildOptions = {}): Container {
   const config = options.config ?? loadConfig(options.env ?? process.env);
   const clock = options.clock ?? systemClock;
   const repository = options.repository ?? buildRepository(config);
-  const ledger = options.ledger ?? new LedgerChain();
+  const ledger = options.ledger ?? buildLedger(config);
   const providers = buildProviderRegistry(config);
   const cipher = new EnvelopeCipher(buildKeyring(config));
   const riskEngine =
@@ -153,6 +155,20 @@ function buildProviderRegistry(config: AppConfig): EidProviderRegistry {
     throw new Error('No e-ID providers enabled — at least one must be configured');
   }
   return new EidProviderRegistry(providers);
+}
+
+function buildLedger(config: AppConfig): LedgerAdapter {
+  const { rpcUrl, privateKey, contractAddress, chainId, gasLimit } = config.polygon;
+  if (rpcUrl && privateKey && contractAddress) {
+    return new PolygonAdapter({
+      rpcUrl,
+      privateKey,
+      contractAddress,
+      chainId: chainId ?? 1101,
+      gasLimit: gasLimit ?? 100_000,
+    });
+  }
+  return new LedgerChain();
 }
 
 /** Convenience helper for tests and the server: build the configured Express app. */

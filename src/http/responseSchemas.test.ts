@@ -286,8 +286,8 @@ describe('HTTP response schemas', () => {
   });
 
   describe('ledgerVerifyResponseSchema', () => {
-    it('validates a ledger verify response', () => {
-      const chain = container.ledger.verify();
+    it('validates a ledger verify response', async () => {
+      const chain = await container.ledger.verify();
       const response = {
         valid: chain.valid,
         length: chain.length,

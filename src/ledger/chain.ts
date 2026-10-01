@@ -1,6 +1,8 @@
 import type { LedgerAnchor } from '../domain/types';
 import { digestOf } from '../security/encryption';
 import { canonicalClone, canonicalJson } from '../util/canonical';
+import type { LedgerAdapter } from './adapter';
+import type { AnchorInput, ChainVerification } from '../domain/types';
 
 /**
  * Tamper-evident proof-of-KYC ledger.
@@ -18,26 +20,7 @@ import { canonicalClone, canonicalJson } from '../util/canonical';
  */
 export const GENESIS_HASH = '0'.repeat(64);
 
-export interface ChainVerification {
-  valid: boolean;
-  length: number;
-  headHash: string;
-  brokenAtIndex: number | null;
-  detail: string;
-}
-
-export interface AnchorInput {
-  type: LedgerAnchor['type'];
-  subjectId: string;
-  submissionId: string;
-  marketplaceId: string;
-  credentialDigest: string;
-  decision: LedgerAnchor['decision'];
-  riskScore: number;
-  createdAt: string;
-}
-
-export class LedgerChain {
+export class LedgerChain implements LedgerAdapter {
   private readonly entries: LedgerAnchor[] = [];
   private tail: Promise<unknown> = Promise.resolve();
 

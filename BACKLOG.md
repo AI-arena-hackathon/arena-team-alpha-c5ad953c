@@ -28,6 +28,7 @@ you're actively working on in In Progress, add follow-ups to Todo.
 - [x] Compliance disclaimers & privacy notice — `src/services/disclaimers.ts`, embedded in all API responses and reports, 10 new tests
 - [x] Repository delete methods — `deleteBySubjectId`/`deleteBySubmissionId` for both InMemory and DynamoDB adapters
 - [x] 344 tests total (60 new) — unit, integration, HTTP contract tests for all new compliance endpoints
+- [x] Polygon zk-EVM anchoring adapter (replace hash chain for production) — `src/ledger/polygonAdapter.ts`, `src/ledger/adapter.ts`, config schema, container wiring, 11 new tests (355 total)
 
 ## In Progress
 
@@ -35,7 +36,6 @@ you're actively working on in In Progress, add follow-ups to Todo.
 
 ## Todo
 
-- [ ] Polygon zk-EVM anchoring adapter (replace hash chain for production)
 - [ ] ECDSA P-256 signed PDF reports (replace HMAC-SHA256 JSON)
 - [ ] Real eIDAS PKI/JWKS validator (replace shared-secret HMAC)
 - [ ] Live sanctions list feed (replace seeded EU consolidated list)
@@ -46,4 +46,4 @@ you're actively working on in In Progress, add follow-ups to Todo.
 - [ ] Consent versioning & re-consent flow for policy updates
 - [ ] Data portability endpoint (GDPR Art. 20) — export subject data
 
-(End of file - total 60 lines)
+(End of file - total 61 lines)

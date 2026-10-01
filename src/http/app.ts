@@ -1,5 +1,5 @@
 import express, { type Express, type Request, type Response } from 'express';
-import type { LedgerChain } from '../ledger/chain';
+import type { LedgerAdapter } from '../ledger/adapter';
 import type { KycService } from '../services/kycService';
 import type { ListingGate } from '../services/listingGate';
 import type { ReportService } from '../services/reportService';
@@ -31,7 +31,7 @@ export interface AppDeps {
   retentionService: RetentionService;
   consentService: ConsentService;
   repository: KycRepository;
-  ledger: LedgerChain;
+  ledger: LedgerAdapter;
   providerIds: string[];
   startedAt: Date;
 }
@@ -74,14 +74,14 @@ export function createApp(deps: AppDeps): Express {
     });
   });
 
-  app.get(`${API}/health/details`, auth, (_req, res) => {
-    const chain = deps.ledger.verify();
+  app.get(`${API}/health/details`, auth, asyncHandler(async (_req, res) => {
+    const chain = await deps.ledger.verify();
     res.json({
       status: chain.valid ? 'ok' : 'degraded',
       ledger: chain,
       submissions: deps.config.partners.map((partner) => partner.marketplaceId),
     });
-  });
+  }));
 
   app.post(
     `${API}/kyc/submissions`,
@@ -169,13 +169,14 @@ export function createApp(deps: AppDeps): Express {
     }),
   );
 
-  app.get(`${API}/ledger/verify`, auth, (_req, res) => {
+  app.get(`${API}/ledger/verify`, auth, asyncHandler(async (_req, res) => {
+    const chain = await deps.ledger.verify();
     res.json({
-      ...deps.ledger.verify(),
+      ...chain,
       disclaimer: getApiDisclaimer('ledgerVerify'),
       disclaimerVersion: getDisclaimerVersion(),
     });
-  });
+  }));
 
   app.get(`${API}/ledger/anchors/:hash`, auth, (req, res) => {
     const hash = String(req.params.hash ?? '');

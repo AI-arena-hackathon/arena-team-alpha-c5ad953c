@@ -6,7 +6,7 @@ import type {
   RiskAssessment,
 } from '../domain/types';
 import { EidProviderRegistry } from '../identity/eidProvider';
-import { LedgerChain } from '../ledger/chain';
+import type { LedgerAdapter } from '../ledger/adapter';
 import { RiskEngine } from '../risk/engine';
 import {
   credentialDigest,
@@ -34,7 +34,7 @@ import { ConsentService } from './consentService';
  */
 export interface KycServiceDeps {
   repository: KycRepository;
-  ledger: LedgerChain;
+  ledger: LedgerAdapter;
   riskEngine: RiskEngine;
   cipher: EnvelopeCipher;
   providers: EidProviderRegistry;

@@ -2,8 +2,8 @@ import {
   corruptEntryForTesting,
   GENESIS_HASH,
   LedgerChain,
-  type AnchorInput,
 } from './chain';
+import type { AnchorInput } from '../domain/types';
 
 function anchor(index: number, patch: Partial<AnchorInput> = {}): AnchorInput {
   return {
