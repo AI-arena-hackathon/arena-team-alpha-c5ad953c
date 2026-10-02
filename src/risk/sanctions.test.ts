@@ -1,4 +1,4 @@
-import { SanctionsScreener } from './sanctions';
+import { SanctionsScreener, loadSanctionsFeed } from './sanctions';
 import { EU_CONSOLIDATED_SANCTIONS, type SanctionsEntry } from './referenceData';
 
 const ENTRY: SanctionsEntry = {
@@ -98,5 +98,77 @@ describe('SanctionsScreener', () => {
     const seed = new SanctionsScreener(EU_CONSOLIDATED_SANCTIONS, 'eu-consolidated');
     expect(seed.size).toBeGreaterThan(0);
     expect(seed.screen({ name: 'Amara Okonkwo-Bright', dateOfBirth: '1984-11-02' })).toHaveLength(1);
+  });
+});
+
+describe('loadSanctionsFeed', () => {
+  const ok = (body: unknown): typeof fetch =>
+    (async () => ({ ok: true, json: async () => body })) as unknown as typeof fetch;
+
+  it('loads a named feed and preserves entry fields', async () => {
+    const feed = await loadSanctionsFeed(
+      'https://example.test/sanctions.json',
+      ok({ listName: 'eu-consolidated', entries: [ENTRY] }),
+    );
+    expect(feed.listName).toBe('eu-consolidated');
+    expect(feed.entries).toHaveLength(1);
+    expect(feed.entries[0]).toMatchObject({ reference: 'EU-TEST-1', name: 'Viktor Petrovich Morozov' });
+  });
+
+  it('accepts a bare top-level array of entries', async () => {
+    const feed = await loadSanctionsFeed('https://example.test/sanctions.json', ok([ENTRY]));
+    expect(feed.listName).toBeUndefined();
+    expect(feed.entries).toHaveLength(1);
+  });
+
+  it('drops malformed rows missing a reference, name or programme', async () => {
+    const feed = await loadSanctionsFeed(
+      'https://example.test/sanctions.json',
+      ok([
+        ENTRY,
+        { name: 'No Reference', programme: 'x' },
+        { reference: 'R1', programme: 'x' },
+        { reference: 'R2', name: 'No Programme' },
+      ]),
+    );
+    expect(feed.entries).toHaveLength(1);
+    expect(feed.entries[0].reference).toBe('EU-TEST-1');
+  });
+
+  it('normalises optional aliases and list names', async () => {
+    const feed = await loadSanctionsFeed(
+      'https://example.test/sanctions.json',
+      ok({
+        entries: [
+          {
+            reference: 'R3',
+            name: 'Entity Ltd',
+            programme: 'test',
+            aliases: ['Entity', 42, null],
+            listName: 'ofac-sdn',
+          },
+        ],
+      }),
+    );
+    expect(feed.entries[0].aliases).toEqual(['Entity']);
+    expect(feed.entries[0].listName).toBe('ofac-sdn');
+    expect(feed.entries[0].dateOfBirth).toBeUndefined();
+  });
+
+  it('throws when the endpoint responds with an error status', async () => {
+    const failing = (async () => ({
+      ok: false,
+      status: 503,
+      statusText: 'Service Unavailable',
+    })) as unknown as typeof fetch;
+    await expect(loadSanctionsFeed('https://example.test/sanctions.json', failing)).rejects.toThrow(
+      /503 Service Unavailable/,
+    );
+  });
+
+  it('rejects a feed whose body is not an object or array', async () => {
+    await expect(
+      loadSanctionsFeed('https://example.test/sanctions.json', ok('not-a-feed')),
+    ).rejects.toThrow(/must be a JSON object or array/);
   });
 });

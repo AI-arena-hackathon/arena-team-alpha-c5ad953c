@@ -136,6 +136,9 @@ describe('FranceConnectProvider', () => {
       method: 'oidc:pwd+mfa',
       dateOfBirth: '1991-04-17',
     });
+    // Strings stay verbatim; array claims are JSON-encoded for an unambiguous audit trail.
+    expect(result.assertion.claims.idp).toBe('franceconnect');
+    expect(result.assertion.claims.amr).toBe('["pwd","mfa"]');
   });
 
   it('accepts substantial assurance but not low', () => {
@@ -178,12 +181,12 @@ describe('EidProviderRegistry', () => {
     expect(registry.find(undefined)).toBeUndefined();
   });
 
-  it('accepts a third-party adapter through the same port', () => {
+  it('accepts a third-party adapter through the same port', async () => {
     const custom: EidProvider = {
       id: 'id-me',
       format: 'eidas' as never,
       minimumAssurance: 'substantial',
-      verify: () => ({
+      verify: async () => ({
         verified: true,
         provider: 'id-me',
         assertion: {
@@ -201,9 +204,8 @@ describe('EidProviderRegistry', () => {
     };
     const extended = new EidProviderRegistry([eidas, franceConnect, custom]);
     expect(extended.find('eidas')?.id).toBe('id-me');
-    expect(
-      extended.find('eidas')?.verify({ format: 'eidas', assertion: 'x'.repeat(20) }, EXPECTED, NOW).verified,
-    ).toBe(true);
+    const result = await extended.find('eidas')?.verify({ format: 'eidas', assertion: 'x'.repeat(20) }, EXPECTED, NOW);
+    expect(result?.verified).toBe(true);
     expect(extended.ids()).toEqual(['franceconnect', 'id-me']);
   });
 });

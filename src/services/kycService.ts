@@ -91,7 +91,7 @@ export class KycService {
     }
 
     const now = this.deps.clock.now();
-    const identity = this.verifyIdentity(input);
+    const identity = await this.verifyIdentity(input);
     const risk = this.deps.riskEngine.assess({
       subjectId: input.subject.subjectId,
       fullName: input.subject.fullName,
@@ -214,7 +214,7 @@ export class KycService {
     this.deps.logger?.info('[kyc] submission evaluated', summary);
   }
 
-  private verifyIdentity(input: KycSubmissionInput): IdentityVerificationResult {
+  private async verifyIdentity(input: KycSubmissionInput): Promise<IdentityVerificationResult> {
     const now = this.deps.clock.now();
     if (!input.credential) {
       const providerIds = this.deps.providers.ids();
@@ -234,7 +234,7 @@ export class KycService {
         provider: String(input.credential.format),
       };
     }
-    return provider.verify(input.credential, { subjectId: input.subject.subjectId }, now);
+    return await provider.verify(input.credential, { subjectId: input.subject.subjectId }, now);
   }
 }
 

@@ -39,11 +39,20 @@ const envSchema = z.object({
   REPORT_ECDSA_PUBLIC_KEY: z.string().optional(),
   REPORT_ECDSA_KEY_ID: z.string().optional(),
 
-  // Shared secrets used by the e-ID adapter fixtures to validate assertions.
+  // Shared secrets used by the e-ID adapter fixtures to validate assertions (legacy HMAC mode).
   EID_EIDAS_SECRET: z.string().optional(),
   EID_FRANCE_CONNECT_SECRET: z.string().optional(),
 
+  // JWKS endpoints for real eIDAS PKI/JWKS validation (production mode).
+  EID_EIDAS_JWKS_URI: z.string().url().optional(),
+  EID_EIDAS_ISSUER: z.string().optional(),
+  EID_EIDAS_AUDIENCE: z.string().optional(),
+  EID_FRANCE_CONNECT_JWKS_URI: z.string().url().optional(),
+  EID_FRANCE_CONNECT_ISSUER: z.string().optional(),
+  EID_FRANCE_CONNECT_AUDIENCE: z.string().optional(),
+
   SANCTIONS_LIST: z.string().default('eu-consolidated'),
+  SANCTIONS_LIST_URL: z.string().url().optional(),
 
   // Enabled e-ID providers (comma-separated: eidas-gateway,franceconnect)
   // Defaults to both in development; in production at least one must be explicitly enabled.
@@ -83,7 +92,21 @@ export interface AppConfig {
   reportEcdsaPublicKey: string | null;
   reportEcdsaKeyId: string | null;
   eidSecrets: { eidas: string; franceconnect: string };
+  /** JWKS configuration for eIDAS Gateway (real PKI validation). */
+  eidEidasJwks: {
+    uri: string | null;
+    issuer: string | null;
+    audience: string | null;
+  };
+  /** JWKS configuration for FranceConnect (real PKI validation). */
+  eidFranceConnectJwks: {
+    uri: string | null;
+    issuer: string | null;
+    audience: string | null;
+  };
   sanctionsList: string;
+  /** Optional URL to fetch live sanctions list feed. */
+  sanctionsListUrl: string | null;
   /** Enabled e-ID provider IDs (e.g., ['eidas-gateway', 'franceconnect']). */
   enabledEidProviders: string[];
   /** Warnings surfaced by /health so operators know a dev default is in use. */
@@ -204,8 +227,21 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   }
   const partners = configuredPartners.length > 0 ? configuredPartners : developmentPartners(warnings);
 
-  // Parse enabled e-ID providers
   const enabledEidProviders = parseEnabledEidProviders(parsed.ENABLED_EID_PROVIDERS, production, warnings);
+
+  // JWKS configuration for real PKI validation
+  const eidEidasJwks = {
+    uri: parsed.EID_EIDAS_JWKS_URI ?? null,
+    issuer: parsed.EID_EIDAS_ISSUER ?? null,
+    audience: parsed.EID_EIDAS_AUDIENCE ?? null,
+  };
+  const eidFranceConnectJwks = {
+    uri: parsed.EID_FRANCE_CONNECT_JWKS_URI ?? null,
+    issuer: parsed.EID_FRANCE_CONNECT_ISSUER ?? null,
+    audience: parsed.EID_FRANCE_CONNECT_AUDIENCE ?? null,
+  };
+  const eidasJwksActive = Boolean(eidEidasJwks.uri && eidEidasJwks.issuer);
+  const franceConnectJwksActive = Boolean(eidFranceConnectJwks.uri && eidFranceConnectJwks.issuer);
 
   // DynamoDB configuration
   const dynamodbTable = parsed.KYC_DYNAMODB_TABLE ?? null;
@@ -246,12 +282,21 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     reportEcdsaPublicKey: parsed.REPORT_ECDSA_PUBLIC_KEY ?? null,
     reportEcdsaKeyId: parsed.REPORT_ECDSA_KEY_ID ?? null,
     eidSecrets: {
-      eidas: requiredSecret(parsed.EID_EIDAS_SECRET, 'EID_EIDAS_SECRET', 8, production, warnings) || 'dev-eidas-secret',
-      franceconnect:
-        requiredSecret(parsed.EID_FRANCE_CONNECT_SECRET, 'EID_FRANCE_CONNECT_SECRET', 8, production, warnings) ||
-        'dev-franceconnect-secret',
+      // A provider configured with JWKS validates signatures against the vendor's
+      // published keys, so its shared HMAC secret is unused and not required.
+      eidas: eidasJwksActive
+        ? ''
+        : requiredSecret(parsed.EID_EIDAS_SECRET, 'EID_EIDAS_SECRET', 8, production, warnings) ||
+          'dev-eidas-secret',
+      franceconnect: franceConnectJwksActive
+        ? ''
+        : requiredSecret(parsed.EID_FRANCE_CONNECT_SECRET, 'EID_FRANCE_CONNECT_SECRET', 8, production, warnings) ||
+          'dev-franceconnect-secret',
     },
+    eidEidasJwks,
+    eidFranceConnectJwks,
     sanctionsList: parsed.SANCTIONS_LIST,
+    sanctionsListUrl: parsed.SANCTIONS_LIST_URL ?? null,
     enabledEidProviders,
     warnings,
     dynamodbTable,

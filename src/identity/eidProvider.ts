@@ -6,7 +6,6 @@ import type {
   IdentityVerificationResult,
   RawCredential,
 } from '../domain/types';
-
 /**
  * Vendor adapter layer for EU e-ID schemes (README risk 1: regulatory lock-in).
  *
@@ -25,7 +24,7 @@ export interface EidProvider {
   readonly format: CredentialFormat;
   /** Vendor-specific minimum eIDAS assurance level before we accept an identity. */
   readonly minimumAssurance: AssuranceLevel;
-  verify(raw: RawCredential, expected: { subjectId: string }, now: Date): IdentityVerificationResult;
+  verify(raw: RawCredential, expected: { subjectId: string }, now: Date): IdentityVerificationResult | Promise<IdentityVerificationResult>;
 }
 
 const ASSURANCE_RANK: Record<AssuranceLevel, number> = {
@@ -278,7 +277,8 @@ export class FranceConnectProvider extends SignedAssertionProvider {
     const out: Record<string, string> = {};
     for (const key of ['acr', 'amr', 'iss', 'idp']) {
       const value = payload[key];
-      if (typeof value === 'string' || Array.isArray(value)) out[key] = JSON.stringify(value);
+      if (typeof value === 'string') out[key] = value;
+      else if (Array.isArray(value)) out[key] = JSON.stringify(value);
     }
     return out;
   }
@@ -301,3 +301,5 @@ export class EidProviderRegistry {
     return [...this.providers.values()].map((provider) => provider.id).sort();
   }
 }
+
+export { JwksVerifier, createEidasGatewayJwksVerifier, createFranceConnectJwksVerifier } from './jwksVerifier';

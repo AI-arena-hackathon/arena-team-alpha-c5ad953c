@@ -101,6 +101,48 @@ describe('loadConfig', () => {
     expect(config.masterKeyId).toBe('k1');
   });
 
+  it('reads the optional live sanctions feed URL', () => {
+    const withoutFeed = loadConfig(env());
+    expect(withoutFeed.sanctionsListUrl).toBeNull();
+
+    const withFeed = loadConfig(env({ SANCTIONS_LIST_URL: 'https://example.test/sanctions.json' }));
+    expect(withFeed.sanctionsListUrl).toBe('https://example.test/sanctions.json');
+  });
+
+  it('reads eIDAS/FranceConnect JWKS configuration', () => {
+    const config = loadConfig(
+      env({
+        EID_EIDAS_JWKS_URI: 'https://eidas.example.test/.well-known/jwks.json',
+        EID_EIDAS_ISSUER: 'https://eidas.example.test',
+        EID_EIDAS_AUDIENCE: 'nft-kyc-hub',
+        EID_FRANCE_CONNECT_JWKS_URI: 'https://fc.example.test/.well-known/jwks.json',
+        EID_FRANCE_CONNECT_ISSUER: 'https://fc.example.test',
+      }),
+    );
+    expect(config.eidEidasJwks).toEqual({
+      uri: 'https://eidas.example.test/.well-known/jwks.json',
+      issuer: 'https://eidas.example.test',
+      audience: 'nft-kyc-hub',
+    });
+    expect(config.eidFranceConnectJwks.uri).toBe('https://fc.example.test/.well-known/jwks.json');
+    expect(config.eidFranceConnectJwks.issuer).toBe('https://fc.example.test');
+  });
+
+  it('drops the HMAC secret requirement in production when JWKS is configured', () => {
+    const config = loadConfig(
+      env({
+        NODE_ENV: 'production',
+        KYC_DYNAMODB_TABLE: 'test-kyc-table',
+        EID_EIDAS_SECRET: undefined,
+        EID_EIDAS_JWKS_URI: 'https://eidas.example.test/.well-known/jwks.json',
+        EID_EIDAS_ISSUER: 'https://eidas.example.test',
+      }),
+    );
+    expect(config.isProduction).toBe(true);
+    expect(config.eidSecrets.eidas).toBe('');
+    expect(config.warnings).toEqual([]);
+  });
+
   it('rejects a secret that is present but too weak, in every environment', () => {
     expect(() => loadConfig(env({ CREDENTIAL_HASH_SALT: 'short' }))).toThrow(/at least 16 characters/);
     expect(() => loadConfig(env({ REPORT_SIGNING_KEY: 'short' }))).toThrow(/at least 16 characters/);

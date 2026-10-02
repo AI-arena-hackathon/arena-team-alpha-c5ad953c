@@ -1,10 +1,17 @@
 import { loadConfig, type AppConfig } from './config';
-import { EidProviderRegistry, EidasGatewayProvider, FranceConnectProvider, type EidProvider } from './identity/eidProvider';
+import {
+  EidProviderRegistry,
+  EidasGatewayProvider,
+  FranceConnectProvider,
+  type EidProvider,
+  createEidasGatewayJwksVerifier,
+  createFranceConnectJwksVerifier,
+} from './identity/eidProvider';
 import { LedgerChain } from './ledger/chain';
 import { PolygonAdapter } from './ledger/polygonAdapter';
 import type { LedgerAdapter } from './ledger/adapter';
 import { RiskEngine } from './risk/engine';
-import { SanctionsScreener } from './risk/sanctions';
+import { SanctionsScreener, type SanctionsFeed } from './risk/sanctions';
 import { EnvelopeCipher, parseHexKey, type CipherKeyring } from './security/encryption';
 import { KycService } from './services/kycService';
 import { ListingGate } from './services/listingGate';
@@ -50,6 +57,8 @@ export interface BuildOptions {
   retentionPolicy?: Partial<RetentionPolicy>;
   consentVersion?: string;
   consentMandatoryPurposes?: ConsentPurpose[];
+  /** Pre-fetched sanctions feed (live list); falls back to the seeded EU list. */
+  sanctionsFeed?: SanctionsFeed;
 }
 
 export function buildContainer(options: BuildOptions = {}): Container {
@@ -59,8 +68,10 @@ export function buildContainer(options: BuildOptions = {}): Container {
   const ledger = options.ledger ?? buildLedger(config);
   const providers = buildProviderRegistry(config);
   const cipher = new EnvelopeCipher(buildKeyring(config));
+  const sanctionsListName = options.sanctionsFeed?.listName ?? config.sanctionsList;
   const riskEngine =
-    options.riskEngine ?? new RiskEngine(new SanctionsScreener(undefined, config.sanctionsList));
+    options.riskEngine ??
+    new RiskEngine(new SanctionsScreener(options.sanctionsFeed?.entries, sanctionsListName));
 
   const listingGate = new ListingGate(repository, clock);
   const signingKeys: ReportSigningKeys = {
@@ -153,9 +164,25 @@ function buildProviderRegistry(config: AppConfig): EidProviderRegistry {
   const providers: EidProvider[] = [];
   for (const providerId of config.enabledEidProviders) {
     if (providerId === 'eidas-gateway') {
-      providers.push(new EidasGatewayProvider(config.eidSecrets.eidas));
+      if (config.eidEidasJwks.uri && config.eidEidasJwks.issuer) {
+        providers.push(createEidasGatewayJwksVerifier({
+          jwksUri: config.eidEidasJwks.uri,
+          issuer: config.eidEidasJwks.issuer,
+          audience: config.eidEidasJwks.audience ?? undefined,
+        }));
+      } else {
+        providers.push(new EidasGatewayProvider(config.eidSecrets.eidas));
+      }
     } else if (providerId === 'franceconnect') {
-      providers.push(new FranceConnectProvider(config.eidSecrets.franceconnect));
+      if (config.eidFranceConnectJwks.uri && config.eidFranceConnectJwks.issuer) {
+        providers.push(createFranceConnectJwksVerifier({
+          jwksUri: config.eidFranceConnectJwks.uri,
+          issuer: config.eidFranceConnectJwks.issuer,
+          audience: config.eidFranceConnectJwks.audience ?? undefined,
+        }));
+      } else {
+        providers.push(new FranceConnectProvider(config.eidSecrets.franceconnect));
+      }
     }
   }
   if (providers.length === 0) {

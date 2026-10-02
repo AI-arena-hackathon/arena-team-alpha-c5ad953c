@@ -5,6 +5,11 @@ import {
   type SanctionsEntry,
 } from './referenceData';
 
+export interface SanctionsFeed {
+  listName?: string;
+  entries: SanctionsEntry[];
+}
+
 /**
  * Sanctions / PEP screening.
  *
@@ -74,4 +79,37 @@ export class SanctionsScreener {
 /** Organisation-level entries are screened by name or wallet, never by DOB. */
 function isEntityEntry(entry: SanctionsEntry): boolean {
   return entry.dateOfBirth === undefined;
+}
+
+/**
+ * Fetch and parse a live sanctions feed (the nightly EU consolidated export).
+ * Accepts either `{ listName, entries: [...] }` or a bare top-level array.
+ * Entries missing a reference, name or programme are dropped rather than
+ * screened with partial data — a malformed row must never silently match.
+ */
+export async function loadSanctionsFeed(url: string, fetchImpl: typeof fetch = fetch): Promise<SanctionsFeed> {
+  const response = await fetchImpl(url);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch sanctions feed: ${response.status} ${response.statusText}`);
+  }
+  const data: unknown = await response.json();
+  const feed = Array.isArray(data) ? { entries: data } : data;
+  if (typeof feed !== 'object' || feed === null || Array.isArray(feed)) {
+    throw new Error('Sanctions feed must be a JSON object or array');
+  }
+  const record = feed as Record<string, unknown>;
+  const listName = typeof record.listName === 'string' ? record.listName : undefined;
+  const rawEntries = Array.isArray(record.entries) ? record.entries : [];
+  const entries: SanctionsEntry[] = rawEntries
+    .filter((entry): entry is Record<string, unknown> => typeof entry === 'object' && entry !== null && !Array.isArray(entry))
+    .map((entry) => ({
+      reference: typeof entry.reference === 'string' ? entry.reference : '',
+      name: typeof entry.name === 'string' ? entry.name : '',
+      dateOfBirth: typeof entry.dateOfBirth === 'string' ? entry.dateOfBirth : undefined,
+      aliases: Array.isArray(entry.aliases) ? entry.aliases.filter((a): a is string => typeof a === 'string') : undefined,
+      programme: typeof entry.programme === 'string' ? entry.programme : '',
+      listName: typeof entry.listName === 'string' ? entry.listName : undefined,
+    }))
+    .filter((entry) => entry.reference && entry.name && entry.programme);
+  return { listName, entries };
 }

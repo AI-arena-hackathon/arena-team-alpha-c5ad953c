@@ -61,10 +61,41 @@
       "minLength": 8,
       "description": "Shared secret for FranceConnect assertion validation. Minimum 8 characters. Required in production."
     },
+    "EID_EIDAS_JWKS_URI": {
+      "type": "string",
+      "pattern": "^https?://.+",
+      "description": "JWKS endpoint URI for eIDAS Gateway (real PKI validation)"
+    },
+    "EID_EIDAS_ISSUER": {
+      "type": "string",
+      "description": "Expected issuer for eIDAS Gateway JWT assertions"
+    },
+    "EID_EIDAS_AUDIENCE": {
+      "type": "string",
+      "description": "Expected audience for eIDAS Gateway JWT assertions"
+    },
+    "EID_FRANCE_CONNECT_JWKS_URI": {
+      "type": "string",
+      "pattern": "^https?://.+",
+      "description": "JWKS endpoint URI for FranceConnect (real PKI validation)"
+    },
+    "EID_FRANCE_CONNECT_ISSUER": {
+      "type": "string",
+      "description": "Expected issuer for FranceConnect JWT assertions"
+    },
+    "EID_FRANCE_CONNECT_AUDIENCE": {
+      "type": "string",
+      "description": "Expected audience for FranceConnect JWT assertions"
+    },
     "SANCTIONS_LIST": {
       "type": "string",
       "default": "eu-consolidated",
-      "description": "Sanctions list identifier (currently only 'eu-consolidated' is supported)"
+      "description": "Sanctions list identifier"
+    },
+    "SANCTIONS_LIST_URL": {
+      "type": "string",
+      "pattern": "^https?://.+",
+      "description": "URL to fetch live sanctions list feed (JSON format)"
     },
     "ENABLED_EID_PROVIDERS": {
       "type": "string",
@@ -145,7 +176,13 @@
       "REPORT_SIGNING_KEY": "prod-report-signing-key-2025-01-15-very-long",
       "EID_EIDAS_SECRET": "prod-eidas-gateway-shared-secret-2025",
       "EID_FRANCE_CONNECT_SECRET": "prod-franceconnect-shared-secret-2025",
+      "EID_EIDAS_JWKS_URI": "https://eidas.example.com/.well-known/jwks.json",
+      "EID_EIDAS_ISSUER": "https://eidas.example.com",
+      "EID_EIDAS_AUDIENCE": "nft-kyc-hub",
+      "EID_FRANCE_CONNECT_JWKS_URI": "https://app.franceconnect.gouv.fr/.well-known/jwks.json",
+      "EID_FRANCE_CONNECT_ISSUER": "https://app.franceconnect.gouv.fr",
       "SANCTIONS_LIST": "eu-consolidated",
+      "SANCTIONS_LIST_URL": "https://example.com/sanctions.json",
       "ENABLED_EID_PROVIDERS": "eidas-gateway,franceconnect",
       "KYC_POLYGON_RPC_URL": "https://zkevm-rpc.com",
       "KYC_POLYGON_PRIVATE_KEY": "c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3d4",

@@ -153,6 +153,37 @@ describe('config.schema.json', () => {
     );
   });
 
+  it('accepts JWKS configuration for both providers', () => {
+    const config = {
+      EID_EIDAS_JWKS_URI: 'https://eidas.example.test/.well-known/jwks.json',
+      EID_EIDAS_ISSUER: 'https://eidas.example.test',
+      EID_EIDAS_AUDIENCE: 'nft-kyc-hub',
+      EID_FRANCE_CONNECT_JWKS_URI: 'https://fc.example.test/.well-known/jwks.json',
+      EID_FRANCE_CONNECT_ISSUER: 'https://fc.example.test',
+    };
+    expect(validate(config)).toBe(true);
+  });
+
+  it('rejects a JWKS URI that is not http(s)', () => {
+    const config = { EID_EIDAS_JWKS_URI: 'ftp://eidas.example.test/jwks.json' };
+    expect(validate(config)).toBe(false);
+    expect(validate.errors).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ keyword: 'pattern', instancePath: '/EID_EIDAS_JWKS_URI' }),
+      ]),
+    );
+  });
+
+  it('rejects a sanctions feed URL that is not http(s)', () => {
+    const config = { SANCTIONS_LIST_URL: 'not-a-url' };
+    expect(validate(config)).toBe(false);
+    expect(validate.errors).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ keyword: 'pattern', instancePath: '/SANCTIONS_LIST_URL' }),
+      ]),
+    );
+  });
+
   it('rejects unknown ENABLED_EID_PROVIDERS value', () => {
     const config = { ENABLED_EID_PROVIDERS: 'unknown-provider' };
     expect(validate(config)).toBe(false);

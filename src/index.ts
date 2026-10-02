@@ -1,13 +1,35 @@
 import { buildContainer } from './container';
 import { createApp } from './http/app';
+import { loadConfig } from './config';
+import { loadSanctionsFeed, type SanctionsFeed } from './risk/sanctions';
+
+/**
+ * Fetch the live sanctions list when SANCTIONS_LIST_URL is configured. A feed
+ * outage must not take the service down, so failures are logged and the caller
+ * falls back to the seeded EU consolidated list.
+ */
+async function resolveSanctionsFeed(url: string | null): Promise<SanctionsFeed | undefined> {
+  if (!url) return undefined;
+  try {
+    return await loadSanctionsFeed(url);
+  } catch (error) {
+    console.error(
+      `[nft-kyc-hub] failed to load sanctions feed ${url}, using seeded list:`,
+      error instanceof Error ? error.message : error,
+    );
+    return undefined;
+  }
+}
 
 /**
  * Server bootstrap. Kept deliberately thin: everything interesting lives in the
  * container and the HTTP app, so `src/index.ts` is wiring plus a graceful
  * shutdown path (Lambda and container deployments both need one).
  */
-function main(): void {
-  const container = buildContainer();
+async function main(): Promise<void> {
+  const config = loadConfig(process.env);
+  const sanctionsFeed = await resolveSanctionsFeed(config.sanctionsListUrl);
+  const container = buildContainer({ config, sanctionsFeed });
 
   for (const warning of container.config.warnings) {
     console.warn(`[config] ${warning}`);
@@ -36,4 +58,7 @@ function main(): void {
   process.on('SIGINT', () => shutdown('SIGINT'));
 }
 
-main();
+main().catch((error) => {
+  console.error('[nft-kyc-hub] failed to start:', error);
+  process.exit(1);
+});

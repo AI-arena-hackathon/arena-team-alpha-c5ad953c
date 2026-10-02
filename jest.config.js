@@ -21,5 +21,12 @@ module.exports = {
       lines: 85
     }
   },
+  transform: {
+    '^.+\\.ts$': 'ts-jest',
+    '^.+\\.js$': 'ts-jest'
+  },
+  transformIgnorePatterns: [
+    '<rootDir>/node_modules/(?!(jose|jwks-rsa)/)'
+  ],
   verbose: true
 };
