@@ -1,5 +1,6 @@
-import { createHmac, randomUUID } from 'node:crypto';
-import type { ComplianceReport, RiskBand } from '../domain/types';
+import { createHmac, randomUUID, createSign, createVerify } from 'node:crypto';
+import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
+import type { ComplianceReport, RiskBand, ReportSignatureAlgorithm } from '../domain/types';
 import type { KycRepository } from '../store/repository';
 import type { Clock } from '../util/clock';
 import { canonicalJson } from '../util/canonical';
@@ -12,23 +13,47 @@ import { recordSerializer } from './recordSerializer';
  * so it is built to be provably PII-free: it references sellers by their
  * marketplace-scoped `subjectId`, quotes the salted credential digest and the
  * ledger anchor hash as evidence, and never copies names, dates of birth or
- * document numbers. The signature (HMAC-SHA256 today, ECDSA P-256 when the
- * PDF-signing pipeline lands) lets a counterparty detect later edits.
+ * document numbers. The signature (HMAC-SHA256 for JSON, ECDSA P-256 for PDF)
+ * lets a counterparty detect later edits.
  */
 export interface ReportWindow {
   from?: string;
   to?: string;
 }
 
+export interface ReportSigningKeys {
+  hmacKey: string;
+  hmacKeyId: string;
+  ecdsaPrivateKeyPem?: string;
+  ecdsaPublicKeyPem?: string;
+  ecdsaKeyId?: string;
+}
+
 export class ReportService {
   constructor(
     private readonly repository: KycRepository,
     private readonly clock: Clock,
-    private readonly signingKey: string,
-    private readonly keyId = 'report-key-1',
+    private readonly signingKeys: ReportSigningKeys,
   ) {}
 
   async generate(marketplaceId: string, window: ReportWindow = {}): Promise<ComplianceReport> {
+    return this.generateReport(marketplaceId, window, 'HMAC-SHA256');
+  }
+
+  async generateEcdsa(marketplaceId: string, window: ReportWindow = {}): Promise<ComplianceReport> {
+    return this.generateReport(marketplaceId, window, 'ECDSA-P256');
+  }
+
+  async generatePdf(marketplaceId: string, window: ReportWindow = {}): Promise<Uint8Array> {
+    const report = await this.generateReport(marketplaceId, window, 'ECDSA-P256');
+    return this.renderPdf(report);
+  }
+
+  private async generateReport(
+    marketplaceId: string,
+    window: ReportWindow,
+    algorithm: ReportSignatureAlgorithm,
+  ): Promise<ComplianceReport> {
     const to = window.to ? new Date(window.to) : this.clock.now();
     const from = window.from ? new Date(window.from) : new Date(to.getTime() - 30 * 24 * 60 * 60 * 1000);
     if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime())) {
@@ -94,20 +119,231 @@ export class ReportService {
         'and ledger anchor hashes.',
     };
 
+    let signatureValue: string;
+    let keyId: string;
+
+    if (algorithm === 'ECDSA-P256') {
+      if (!this.signingKeys.ecdsaPrivateKeyPem || !this.signingKeys.ecdsaKeyId) {
+        throw new Error('ECDSA-P256 signing requires ecdsaPrivateKeyPem and ecdsaKeyId');
+      }
+      signatureValue = this.signEcdsa(unsigned);
+      keyId = this.signingKeys.ecdsaKeyId;
+    } else {
+      signatureValue = createHmac('sha256', this.signingKeys.hmacKey)
+        .update(canonicalJson(unsigned), 'utf8')
+        .digest('hex');
+      keyId = this.signingKeys.hmacKeyId;
+    }
+
     return {
       ...unsigned,
       signature: {
-        alg: 'HMAC-SHA256',
-        keyId: this.keyId,
-        value: createHmac('sha256', this.signingKey).update(canonicalJson(unsigned), 'utf8').digest('hex'),
+        alg: algorithm,
+        keyId,
+        value: signatureValue,
       },
     };
+  }
+
+  private signEcdsa(data: object): string {
+    const privateKey = this.signingKeys.ecdsaPrivateKeyPem;
+    if (!privateKey) throw new Error('ECDSA private key not configured');
+    const signer = createSign('sha256');
+    signer.update(canonicalJson(data), 'utf8');
+    signer.end();
+    return signer.sign(privateKey, 'base64');
+  }
+
+  private async renderPdf(report: ComplianceReport): Promise<Uint8Array> {
+    const doc = await PDFDocument.create();
+    const font = await doc.embedFont(StandardFonts.Helvetica);
+    const fontBold = await doc.embedFont(StandardFonts.HelveticaBold);
+    const pageWidth = 595.28;
+    const pageHeight = 841.89;
+    const margin = 50;
+    let y = pageHeight - margin;
+
+    const addPage = () => {
+      const page = doc.addPage([pageWidth, pageHeight]);
+      y = pageHeight - margin;
+      return page;
+    };
+
+    let page = doc.addPage([pageWidth, pageHeight]);
+
+    const drawText = (text: string, x: number, yPos: number, size = 10, bold = false, color = rgb(0, 0, 0)) => {
+      page.drawText(text, { x, y: yPos, size, font: bold ? fontBold : font, color });
+    };
+
+    const drawLine = (yPos: number) => {
+      page.drawLine({
+        start: { x: margin, y: yPos },
+        end: { x: pageWidth - margin, y: yPos },
+        thickness: 0.5,
+        color: rgb(0.7, 0.7, 0.7),
+      });
+    };
+
+    const checkSpace = (lines: number) => {
+      if (y - lines * 14 < margin) {
+        page = addPage();
+      }
+    };
+
+    // Title
+    checkSpace(3);
+    drawText('NFT-KYC Hub — Compliance Report', margin, y, 18, true);
+    y -= 24;
+    drawLine(y);
+    y -= 16;
+
+    // Metadata
+    drawText(`Report ID: ${report.reportId}`, margin, y, 10);
+    y -= 14;
+    drawText(`Generated: ${report.generatedAt}`, margin, y, 10);
+    y -= 14;
+    drawText(`Window: ${report.window.from} to ${report.window.to}`, margin, y, 10);
+    y -= 14;
+    drawText(`Marketplace: ${report.marketplaceId}`, margin, y, 10);
+    y -= 14;
+    drawText(`Signature: ${report.signature.alg} (key: ${report.signature.keyId})`, margin, y, 10);
+    y -= 20;
+    drawLine(y);
+    y -= 16;
+
+    // Totals
+    checkSpace(2);
+    drawText('Summary', margin, y, 14, true);
+    y -= 18;
+    const totals = [
+      ['Total Submissions', report.totals.submissions.toString()],
+      ['Verified', report.totals.verified.toString()],
+      ['Review', report.totals.review.toString()],
+      ['Rejected', report.totals.rejected.toString()],
+      ['Blocked Listings', report.totals.blockedListings.toString()],
+      ['Sanctions Hits', report.totals.sanctionsHits.toString()],
+      ['Average Risk Score', report.totals.averageRiskScore.toString()],
+    ];
+    for (const [label, value] of totals) {
+      checkSpace(1);
+      drawText(`${label}:`, margin, y, 10, true);
+      drawText(value, margin + 150, y, 10);
+      y -= 14;
+    }
+    y -= 10;
+    drawLine(y);
+    y -= 16;
+
+    // Risk Distribution
+    checkSpace(2);
+    drawText('Risk Distribution', margin, y, 14, true);
+    y -= 18;
+    for (const band of ['low', 'medium', 'high'] as RiskBand[]) {
+      checkSpace(1);
+      drawText(`${band.charAt(0).toUpperCase() + band.slice(1)}:`, margin, y, 10, true);
+      drawText(report.riskDistribution[band].toString(), margin + 150, y, 10);
+      y -= 14;
+    }
+    y -= 10;
+    drawLine(y);
+    y -= 16;
+
+    // Top Risk Drivers
+    checkSpace(2);
+    drawText('Top Risk Drivers', margin, y, 14, true);
+    y -= 18;
+    for (const driver of report.topRiskDrivers) {
+      checkSpace(1);
+      drawText(`${driver.code} (${driver.label}): ${driver.occurrences} occurrence(s)`, margin, y, 10);
+      y -= 14;
+    }
+    y -= 10;
+    drawLine(y);
+    y -= 16;
+
+    // Records
+    checkSpace(2);
+    drawText('Submission Records', margin, y, 14, true);
+    y -= 18;
+    for (const record of report.records) {
+      checkSpace(6);
+      drawText(`Submission: ${record.submissionId}`, margin, y, 10, true);
+      y -= 14;
+      drawText(`Subject: ${record.subjectId}`, margin + 10, y, 10);
+      y -= 14;
+      drawText(`Status: ${record.status} | Risk: ${record.riskScore} (${record.riskBand})`, margin + 10, y, 10);
+      y -= 14;
+      drawText(`Credential Digest: ${record.credentialDigest}`, margin + 10, y, 8);
+      y -= 12;
+      drawText(`Ledger Anchor: ${record.ledgerHash}`, margin + 10, y, 8);
+      y -= 12;
+      drawText(`Decided: ${record.decidedAt}`, margin + 10, y, 8);
+      y -= 16;
+    }
+    y -= 10;
+    drawLine(y);
+    y -= 16;
+
+    // Attestation
+    checkSpace(3);
+    drawText('Attestation', margin, y, 12, true);
+    y -= 16;
+    const attestationLines = this.wrapText(report.attestation, pageWidth - 2 * margin, font, 9);
+    for (const line of attestationLines) {
+      checkSpace(1);
+      drawText(line, margin, y, 9);
+      y -= 12;
+    }
+    y -= 10;
+    drawLine(y);
+    y -= 16;
+
+    // Signature block
+    checkSpace(4);
+    drawText('Digital Signature', margin, y, 12, true);
+    y -= 16;
+    drawText(`Algorithm: ${report.signature.alg}`, margin, y, 10);
+    y -= 14;
+    drawText(`Key ID: ${report.signature.keyId}`, margin, y, 10);
+    y -= 14;
+    drawText(`Value: ${report.signature.value.substring(0, 80)}...`, margin, y, 8);
+    y -= 14;
+    drawText(`Value (cont.): ${report.signature.value.substring(80)}`, margin, y, 8);
+
+    return await doc.save();
+  }
+
+  private wrapText(text: string, maxWidth: number, font: { widthOfTextAtSize: (text: string, size: number) => number }, size: number): string[] {
+    const words = text.split(' ');
+    const lines: string[] = [];
+    let currentLine = '';
+    for (const word of words) {
+      const testLine = currentLine ? `${currentLine} ${word}` : word;
+      const width = font.widthOfTextAtSize(testLine, size);
+      if (width > maxWidth && currentLine) {
+        lines.push(currentLine);
+        currentLine = word;
+      } else {
+        currentLine = testLine;
+      }
+    }
+    if (currentLine) lines.push(currentLine);
+    return lines;
   }
 }
 
 /** Verifies a report's signature — used by counterparties and by the report tests. */
-export function verifyReportSignature(report: ComplianceReport, signingKey: string): boolean {
+export function verifyReportSignature(report: ComplianceReport, signingKeys: ReportSigningKeys): boolean {
   const { signature, ...unsigned } = report;
-  const expected = createHmac('sha256', signingKey).update(canonicalJson(unsigned), 'utf8').digest('hex');
+  if (signature.alg === 'ECDSA-P256') {
+    if (!signingKeys.ecdsaPublicKeyPem) return false;
+    const verifier = createVerify('sha256');
+    verifier.update(canonicalJson(unsigned), 'utf8');
+    verifier.end();
+    return verifier.verify(signingKeys.ecdsaPublicKeyPem, signature.value, 'base64');
+  }
+  const expected = createHmac('sha256', signingKeys.hmacKey)
+    .update(canonicalJson(unsigned), 'utf8')
+    .digest('hex');
   return expected === signature.value;
 }

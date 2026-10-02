@@ -35,6 +35,9 @@ const envSchema = z.object({
   // Secret used to sign generated compliance reports (HMAC-SHA256 today,
   // ECDSA P-256 once the PDF-signing pipeline lands).
   REPORT_SIGNING_KEY: z.string().optional(),
+  REPORT_ECDSA_PRIVATE_KEY: z.string().optional(),
+  REPORT_ECDSA_PUBLIC_KEY: z.string().optional(),
+  REPORT_ECDSA_KEY_ID: z.string().optional(),
 
   // Shared secrets used by the e-ID adapter fixtures to validate assertions.
   EID_EIDAS_SECRET: z.string().optional(),
@@ -76,6 +79,9 @@ export interface AppConfig {
   credentialHashSalt: string;
   partners: PartnerCredential[];
   reportSigningKey: string;
+  reportEcdsaPrivateKey: string | null;
+  reportEcdsaPublicKey: string | null;
+  reportEcdsaKeyId: string | null;
   eidSecrets: { eidas: string; franceconnect: string };
   sanctionsList: string;
   /** Enabled e-ID provider IDs (e.g., ['eidas-gateway', 'franceconnect']). */
@@ -236,6 +242,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     reportSigningKey:
       requiredSecret(parsed.REPORT_SIGNING_KEY, 'REPORT_SIGNING_KEY', 16, production, warnings) ||
       'dev-report-signing-key-0001',
+    reportEcdsaPrivateKey: parsed.REPORT_ECDSA_PRIVATE_KEY ?? null,
+    reportEcdsaPublicKey: parsed.REPORT_ECDSA_PUBLIC_KEY ?? null,
+    reportEcdsaKeyId: parsed.REPORT_ECDSA_KEY_ID ?? null,
     eidSecrets: {
       eidas: requiredSecret(parsed.EID_EIDAS_SECRET, 'EID_EIDAS_SECRET', 8, production, warnings) || 'dev-eidas-secret',
       franceconnect:

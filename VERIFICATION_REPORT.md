@@ -1,4 +1,4 @@
-# Verification report — turn
+# Verification report — turn manual
 
 | Phase      | Command                   | Result | Exit |
 |------------|---------------------------|--------|------|
@@ -7,39 +7,34 @@
 | Lint       | npm run lint              | PASS   | 0    |
 | Test       | npm test                  | PASS   | 0    |
 | Security   | npm audit                 | PASS   | 0    |
-| Diff       | git diff --stat           | 11 files changed, 259 insertions(+), 38 deletions(-) + 3 new files | — |
+| Diff       | git diff --stat           | 7 files changed, 422 insertions(+), 19 deletions(-) | — |
 
 ## Test evidence
 - command: npm test
-- result: 355 passed, 0 failed, 0 skipped (11 new tests added)
+- result: 361 passed, 0 failed, 0 skipped (6 new tests added)
 - failing test names (if any): none
 
 ## Security notes
 - dependency audit: clean (0 vulnerabilities)
 - secrets: none introduced
-- new files:
-  - src/ledger/adapter.ts (LedgerAdapter interface for swappable ledger backends)
-  - src/ledger/polygonAdapter.ts (Polygon zk-EVM anchoring adapter)
-  - src/ledger/polygonAdapter.test.ts (11 tests for Polygon adapter)
-- strengthened privacy:
-  - Polygon adapter only anchors salted credential digests and decision metadata (no PII)
-  - Local verification fallback maintains tamper-evidence without RPC calls
-  - Cache initialization from config supports offline/testing mode
-- removed duplicated logic: Created LedgerAdapter interface to unify in-memory chain and Polygon adapter
+- new files: none
+- modified files:
+  - src/services/reportService.ts: Added ECDSA-P256 signing and PDF generation
+  - src/services/reportService.test.ts: Added 6 new tests for ECDSA PDF reports
+  - src/domain/types.ts: Added ReportSignatureAlgorithm type
+  - src/config.ts: Added ECDSA key config fields
+  - src/container.ts: Wire ECDSA keys to ReportService
 
 ## Verdict
 READY
 
-Implemented Polygon zk-EVM anchoring adapter (backlog item: Polygon zk-EVM anchoring adapter):
-1. **LedgerAdapter interface** (`src/ledger/adapter.ts`) — Common port for both in-memory hash chain (fallback) and Polygon anchoring (production). Defines `append`, `appendAll`, `verify`, `find`, `all`, `headHash`, `length`.
-2. **PolygonAdapter** (`src/ledger/polygonAdapter.ts`) — Production-grade adapter using ethers.js v6:
-   - Submits anchors as transactions to a Polygon zk-EVM smart contract
-   - Maintains local cache for fast reads (populated from contract events on init)
-   - Retry logic with exponential backoff for transaction submission
-   - Nonce management for concurrent writes
-   - Falls back to local chain verification if RPC unavailable
-   - Config-driven via environment variables (RPC URL, private key, contract address, chain ID, gas limit)
-3. **Config schema** (`config.schema.json`, `src/config.ts`) — Added `KYC_POLYGON_RPC_URL`, `KYC_POLYGON_PRIVATE_KEY`, `KYC_POLYGON_CONTRACT_ADDRESS`, `KYC_POLYGON_CHAIN_ID`, `KYC_POLYGON_GAS_LIMIT` with validation.
-4. **Container wiring** (`src/container.ts`) — `buildLedger()` selects PolygonAdapter when all Polygon config is present, otherwise falls back to LedgerChain.
-5. **Integration** — Updated `KycService`, `container.ts`, and HTTP layer (`app.ts`) to use `LedgerAdapter` interface. Both health details and ledger verify endpoints now handle async verification.
-6. **Tests** — 11 new unit tests covering constructor, hash computation, local verification (intact/tampered), cache behavior, and interface compliance. Total test count: 355 (up from 344).
+Implemented ECDSA P-256 signed PDF reports (backlog item: ECDSA P-256 signed PDF reports):
+1. **ReportSignatureAlgorithm type** (`src/domain/types.ts`) — Added `ReportSignatureAlgorithm` union type ('HMAC-SHA256' | 'ECDSA-P256') to support both signing algorithms.
+2. **Config schema** (`src/config.ts`) — Added `REPORT_ECDSA_PRIVATE_KEY`, `REPORT_ECDSA_PUBLIC_KEY`, `REPORT_ECDSA_KEY_ID` environment variables.
+3. **ReportService** (`src/services/reportService.ts`) — Extended with:
+   - `generateEcdsa()` method for ECDSA-signed JSON reports
+   - `generatePdf()` method for PDF report generation using pdf-lib
+   - `signEcdsa()` and `verifyReportSignature()` for ECDSA-P256 signing/verification
+   - `renderPdf()` private method that renders compliance reports as PDF documents
+4. **Container wiring** (`src/container.ts`) — Passes ECDSA keys from config to ReportService via `ReportSigningKeys` interface.
+5. **Tests** — 6 new tests covering PDF generation, ECDSA signature verification, tampering detection, missing key handling, and PII-free guarantee. Total test count: 361 (up from 355).

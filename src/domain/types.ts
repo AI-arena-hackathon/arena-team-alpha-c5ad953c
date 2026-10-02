@@ -226,6 +226,8 @@ export interface ListingDecision {
   checkedAt: string;
 }
 
+export type ReportSignatureAlgorithm = 'HMAC-SHA256' | 'ECDSA-P256';
+
 export interface ComplianceReport {
   reportId: string;
   generatedAt: string;
@@ -252,6 +254,6 @@ export interface ComplianceReport {
     ledgerHash: string;
     decidedAt: string;
   }>;
-  signature: { alg: 'HMAC-SHA256'; keyId: string; value: string };
+  signature: { alg: ReportSignatureAlgorithm; keyId: string; value: string };
   attestation: string;
 }

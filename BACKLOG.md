@@ -29,6 +29,7 @@ you're actively working on in In Progress, add follow-ups to Todo.
 - [x] Repository delete methods — `deleteBySubjectId`/`deleteBySubmissionId` for both InMemory and DynamoDB adapters
 - [x] 344 tests total (60 new) — unit, integration, HTTP contract tests for all new compliance endpoints
 - [x] Polygon zk-EVM anchoring adapter (replace hash chain for production) — `src/ledger/polygonAdapter.ts`, `src/ledger/adapter.ts`, config schema, container wiring, 11 new tests (355 total)
+- [x] ECDSA P-256 signed PDF reports (replace HMAC-SHA256 JSON) — `src/services/reportService.ts`, config schema, container wiring, 6 new tests (361 total)
 
 ## In Progress
 
@@ -36,7 +37,7 @@ you're actively working on in In Progress, add follow-ups to Todo.
 
 ## Todo
 
-- [ ] ECDSA P-256 signed PDF reports (replace HMAC-SHA256 JSON)
+- [ ] Real eIDAS PKI/JWKS validator (replace shared-secret HMAC)
 - [ ] Real eIDAS PKI/JWKS validator (replace shared-secret HMAC)
 - [ ] Live sanctions list feed (replace seeded EU consolidated list)
 - [ ] React + Vite compliance dashboard (CloudFront static hosting)

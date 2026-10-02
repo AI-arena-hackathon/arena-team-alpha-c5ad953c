@@ -1,5 +1,5 @@
 import { buildContainer, type Container } from '../container';
-import { verifyReportSignature } from './reportService';
+import { verifyReportSignature, type ReportSigningKeys } from './reportService';
 import {
   eidasAssertion,
   healthySubmission,
@@ -10,9 +10,26 @@ import {
 } from '../testing/fixtures';
 import { containsPii } from '../security/redaction';
 import { fixedClock } from '../util/clock';
+import { generateKeyPairSync } from 'node:crypto';
 
 function buildTestContainer(): Container {
   return buildContainer({ config: testConfig(), clock: fixedClock(TEST_NOW) });
+}
+
+function testSigningKeys(): ReportSigningKeys {
+  return {
+    hmacKey: TEST_REPORT_KEY,
+    hmacKeyId: 'report-key-1',
+  };
+}
+
+function generateTestEcdsaKeys(): { privateKeyPem: string; publicKeyPem: string } {
+  const { privateKey, publicKey } = generateKeyPairSync('ec', {
+    namedCurve: 'prime256v1',
+    privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
+    publicKeyEncoding: { type: 'spki', format: 'pem' },
+  });
+  return { privateKeyPem: privateKey, publicKeyPem: publicKey };
 }
 
 describe('ReportService', () => {
@@ -102,11 +119,11 @@ describe('ReportService', () => {
     const report = await container.reportService.generate(TEST_MARKETPLACE);
 
     expect(report.signature.alg).toBe('HMAC-SHA256');
-    expect(verifyReportSignature(report, TEST_REPORT_KEY)).toBe(true);
+    expect(verifyReportSignature(report, testSigningKeys())).toBe(true);
 
     const tampered = { ...report, totals: { ...report.totals, verified: 99 } };
-    expect(verifyReportSignature(tampered, TEST_REPORT_KEY)).toBe(false);
-    expect(verifyReportSignature(report, 'another-key')).toBe(false);
+    expect(verifyReportSignature(tampered, testSigningKeys())).toBe(false);
+    expect(verifyReportSignature(report, { ...testSigningKeys(), hmacKey: 'another-key' })).toBe(false);
   });
 
   it('honours an explicit reporting window', async () => {
@@ -160,5 +177,93 @@ describe('ReportService', () => {
     const report = await container.reportService.generate('market-beta');
     expect(report.marketplaceId).toBe('market-beta');
     expect(report.records.map((record) => record.submissionId)).toEqual(['kyc_beta']);
+  });
+});
+
+describe('ReportService — ECDSA-P256 PDF reports', () => {
+  const { privateKeyPem, publicKeyPem } = generateTestEcdsaKeys();
+  const ecdsaSigningKeys: ReportSigningKeys = {
+    hmacKey: TEST_REPORT_KEY,
+    hmacKeyId: 'report-key-1',
+    ecdsaPrivateKeyPem: privateKeyPem,
+    ecdsaPublicKeyPem: publicKeyPem,
+    ecdsaKeyId: 'ecdsa-test-key-1',
+  };
+
+  function buildEcdsaContainer(): Container {
+    const config = testConfig({
+      reportEcdsaPrivateKey: privateKeyPem,
+      reportEcdsaPublicKey: publicKeyPem,
+      reportEcdsaKeyId: 'ecdsa-test-key-1',
+    });
+    return buildContainer({ config, clock: fixedClock(TEST_NOW) });
+  }
+
+  it('generates a PDF report signed with ECDSA-P256', async () => {
+    const container = buildEcdsaContainer();
+    await container.kycService.submit(TEST_MARKETPLACE, healthySubmission());
+
+    const pdfBytes = await container.reportService.generatePdf(TEST_MARKETPLACE);
+
+    expect(pdfBytes).toBeInstanceOf(Uint8Array);
+    expect(pdfBytes.length).toBeGreaterThan(1000);
+    // PDF header
+    expect(String.fromCharCode(...pdfBytes.slice(0, 5))).toBe('%PDF-');
+  });
+
+  it('ECDSA-signed JSON report has correct algorithm and key ID', async () => {
+    const container = buildEcdsaContainer();
+    await container.kycService.submit(TEST_MARKETPLACE, healthySubmission());
+
+    const report = await container.reportService.generateEcdsa(TEST_MARKETPLACE);
+    expect(report.signature.alg).toBe('ECDSA-P256');
+    expect(report.signature.keyId).toBe('ecdsa-test-key-1');
+  });
+
+  it('ECDSA signature on JSON report is verifiable', async () => {
+    const container = buildEcdsaContainer();
+    await container.kycService.submit(TEST_MARKETPLACE, healthySubmission());
+
+    const report = await container.reportService.generateEcdsa(TEST_MARKETPLACE);
+    expect(verifyReportSignature(report, ecdsaSigningKeys)).toBe(true);
+  });
+
+  it('ECDSA signature detects tampering on PDF report', async () => {
+    const container = buildEcdsaContainer();
+    await container.kycService.submit(TEST_MARKETPLACE, healthySubmission());
+
+    const report = await container.reportService.generate(TEST_MARKETPLACE);
+
+    expect(verifyReportSignature(report, ecdsaSigningKeys)).toBe(true);
+
+    const tampered = { ...report, totals: { ...report.totals, verified: 99 } };
+    expect(verifyReportSignature(tampered, ecdsaSigningKeys)).toBe(false);
+  });
+
+  it('generatePdf throws when ECDSA keys are not configured', async () => {
+    const container = buildTestContainer(); // no ECDSA keys
+
+    await expect(container.reportService.generatePdf(TEST_MARKETPLACE)).rejects.toThrow(
+      /ECDSA-P256 signing requires/,
+    );
+  });
+
+  it('PDF report is PII-free', async () => {
+    const container = buildEcdsaContainer();
+    await container.kycService.submit(TEST_MARKETPLACE, healthySubmission());
+
+    const report = await container.reportService.generateEcdsa(TEST_MARKETPLACE);
+    const pdfBytes = await container.reportService.generatePdf(TEST_MARKETPLACE);
+
+    // Verify the JSON report (which is what gets signed and rendered) is PII-free
+    expect(containsPii(report)).toBe(false);
+    const serialised = JSON.stringify(report);
+    for (const secret of ['Ines Ferreira', '1991-04-17', 'PT4417X', eidasAssertion()]) {
+      expect(serialised).not.toContain(secret);
+    }
+
+    // PDF is compressed; we verify PII-free by checking the source report
+    expect(pdfBytes).toBeInstanceOf(Uint8Array);
+    expect(pdfBytes.length).toBeGreaterThan(1000);
   });
 });

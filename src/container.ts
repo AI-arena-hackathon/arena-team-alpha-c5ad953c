@@ -8,7 +8,7 @@ import { SanctionsScreener } from './risk/sanctions';
 import { EnvelopeCipher, parseHexKey, type CipherKeyring } from './security/encryption';
 import { KycService } from './services/kycService';
 import { ListingGate } from './services/listingGate';
-import { ReportService } from './services/reportService';
+import { ReportService, type ReportSigningKeys } from './services/reportService';
 import { RetentionService, type RetentionPolicy, createDefaultRetentionPolicy } from './services/retentionService';
 import { ConsentService, type ConsentPurpose } from './services/consentService';
 import { InMemoryKycRepository, type KycRepository } from './store/repository';
@@ -63,7 +63,14 @@ export function buildContainer(options: BuildOptions = {}): Container {
     options.riskEngine ?? new RiskEngine(new SanctionsScreener(undefined, config.sanctionsList));
 
   const listingGate = new ListingGate(repository, clock);
-  const reportService = new ReportService(repository, clock, config.reportSigningKey);
+  const signingKeys: ReportSigningKeys = {
+    hmacKey: config.reportSigningKey,
+    hmacKeyId: 'report-key-1',
+    ecdsaPrivateKeyPem: config.reportEcdsaPrivateKey ?? undefined,
+    ecdsaPublicKeyPem: config.reportEcdsaPublicKey ?? undefined,
+    ecdsaKeyId: config.reportEcdsaKeyId ?? undefined,
+  };
+  const reportService = new ReportService(repository, clock, signingKeys);
 
   const retentionService = new RetentionService({
     policy: { ...createDefaultRetentionPolicy(), ...options.retentionPolicy },
