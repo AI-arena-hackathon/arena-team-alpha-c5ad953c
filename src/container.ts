@@ -12,6 +12,7 @@ import { PolygonAdapter } from './ledger/polygonAdapter';
 import type { LedgerAdapter } from './ledger/adapter';
 import { RiskEngine } from './risk/engine';
 import { SanctionsScreener, type SanctionsFeed } from './risk/sanctions';
+import { createSanctionsFeedScheduler, type SanctionsFeedSchedulerHandle } from './services/sanctionsFeedScheduler';
 import { EnvelopeCipher, parseHexKey, type CipherKeyring } from './security/encryption';
 import { KycService } from './services/kycService';
 import { ListingGate } from './services/listingGate';
@@ -42,6 +43,7 @@ export interface Container {
   reportService: ReportService;
   retentionService: RetentionService;
   consentService: ConsentService;
+  sanctionsScheduler: SanctionsFeedSchedulerHandle | null;
   deps: AppDeps;
 }
 
@@ -110,6 +112,31 @@ export function buildContainer(options: BuildOptions = {}): Container {
     logger: options.logger,
   });
 
+  // Sanctions feed scheduler. Started here so a long-running process keeps its
+  // reference-data fresh; `container.sanctionsScheduler.stop()` on shutdown, and
+  // `triggerRefresh()` is the entry point for an externally-scheduled Lambda.
+  const sanctionsScheduler = config.sanctionsFeedRefreshEnabled && config.sanctionsListUrl
+    ? createSanctionsFeedScheduler(riskEngine, {
+        url: config.sanctionsListUrl,
+        intervalMs: config.sanctionsFeedRefreshIntervalMs,
+        maxRetries: config.sanctionsFeedMaxRetries,
+        baseRetryDelayMs: config.sanctionsFeedBaseRetryDelayMs,
+        maxRetryDelayMs: config.sanctionsFeedMaxRetryDelayMs,
+        circuitBreakerThreshold: config.sanctionsFeedCircuitBreakerThreshold,
+        circuitBreakerResetTimeoutMs: config.sanctionsFeedCircuitBreakerResetTimeoutMs,
+        minEntries: config.sanctionsFeedMinEntries,
+        // The boot fetch (src/index.ts) already installed this list; don't fetch
+        // the same bytes again seconds later.
+        initialFeed: options.sanctionsFeed,
+        feedOptions: {
+          timeoutMs: config.sanctionsFeedTimeoutMs,
+          maxResponseSizeBytes: config.sanctionsFeedMaxSizeBytes,
+        },
+        logger: options.logger,
+        clock,
+      })
+    : null;
+
   const deps: AppDeps = {
     config,
     clock,
@@ -122,6 +149,7 @@ export function buildContainer(options: BuildOptions = {}): Container {
     ledger,
     providerIds: providers.ids(),
     startedAt: options.startedAt ?? clock.now(),
+    sanctionsScheduler,
   };
 
   return {
@@ -137,6 +165,7 @@ export function buildContainer(options: BuildOptions = {}): Container {
     reportService,
     retentionService,
     consentService,
+    sanctionsScheduler,
     deps,
   };
 }

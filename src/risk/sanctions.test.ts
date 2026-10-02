@@ -1,4 +1,4 @@
-import { SanctionsScreener, loadSanctionsFeed, type LoadSanctionsFeedOptions } from './sanctions';
+import { SanctionsScreener, isFeedUsable, loadSanctionsFeed, type LoadSanctionsFeedOptions } from './sanctions';
 import { EU_CONSOLIDATED_SANCTIONS, type SanctionsEntry } from './referenceData';
 
 const ENTRY: SanctionsEntry = {
@@ -123,6 +123,21 @@ describe('SanctionsScreener', () => {
     const seed = new SanctionsScreener(EU_CONSOLIDATED_SANCTIONS, 'eu-consolidated');
     expect(seed.size).toBeGreaterThan(0);
     expect(seed.screen({ name: 'Amara Okonkwo-Bright', dateOfBirth: '1984-11-02' })).toHaveLength(1);
+  });
+});
+
+describe('isFeedUsable', () => {
+  it('accepts a feed that meets the minimum', () => {
+    expect(isFeedUsable({ entries: [ENTRY] })).toBe(true);
+  });
+
+  it('rejects an empty feed by default', () => {
+    expect(isFeedUsable({ entries: [] })).toBe(false);
+  });
+
+  it('honours a configured minimum', () => {
+    expect(isFeedUsable({ entries: [ENTRY] }, 2)).toBe(false);
+    expect(isFeedUsable({ entries: [ENTRY, ENTRY] }, 2)).toBe(true);
   });
 });
 

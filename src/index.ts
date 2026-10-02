@@ -1,28 +1,7 @@
 import { buildContainer } from './container';
 import { createApp } from './http/app';
 import { loadConfig } from './config';
-import { loadSanctionsFeed, type SanctionsFeed, type LoadSanctionsFeedOptions } from './risk/sanctions';
-
-/**
- * Fetch the live sanctions list when SANCTIONS_LIST_URL is configured. A feed
- * outage must not take the service down, so failures are logged and the caller
- * falls back to the seeded EU consolidated list.
- */
-async function resolveSanctionsFeed(
-  url: string | null,
-  options: LoadSanctionsFeedOptions = {},
-): Promise<SanctionsFeed | undefined> {
-  if (!url) return undefined;
-  try {
-    return await loadSanctionsFeed(url, options);
-  } catch (error) {
-    console.error(
-      `[nft-kyc-hub] failed to load sanctions feed ${url}, using seeded list:`,
-      error instanceof Error ? error.message : error,
-    );
-    return undefined;
-  }
-}
+import { loadInitialSanctionsFeed } from './services/sanctionsFeedScheduler';
 
 /**
  * Server bootstrap. Kept deliberately thin: everything interesting lives in the
@@ -31,9 +10,17 @@ async function resolveSanctionsFeed(
  */
 async function main(): Promise<void> {
   const config = loadConfig(process.env);
-  const sanctionsFeed = await resolveSanctionsFeed(config.sanctionsListUrl, {
-    timeoutMs: config.sanctionsFeedTimeoutMs,
-    maxResponseSizeBytes: config.sanctionsFeedMaxSizeBytes,
+  // Load the live sanctions list before accepting traffic, so the very first
+  // submission is screened against live data. A feed outage falls back to the
+  // seeded EU list instead of failing startup, and the scheduler keeps trying
+  // in the background.
+  const sanctionsFeed = await loadInitialSanctionsFeed({
+    url: config.sanctionsListUrl,
+    minEntries: config.sanctionsFeedMinEntries,
+    feedOptions: {
+      timeoutMs: config.sanctionsFeedTimeoutMs,
+      maxResponseSizeBytes: config.sanctionsFeedMaxSizeBytes,
+    },
   });
   const container = buildContainer({ config, sanctionsFeed });
 
@@ -58,6 +45,10 @@ async function main(): Promise<void> {
 
   const shutdown = (signal: string): void => {
     console.log(`[nft-kyc-hub] ${signal} received, draining connections`);
+    if (container.sanctionsScheduler) {
+      console.log('[nft-kyc-hub] Stopping sanctions feed scheduler');
+      container.sanctionsScheduler.stop();
+    }
     server.close(() => process.exit(0));
   };
   process.on('SIGTERM', () => shutdown('SIGTERM'));

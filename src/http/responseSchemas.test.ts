@@ -9,6 +9,8 @@ import {
   ledgerVerifyResponseSchema,
   ledgerAnchorResponseSchema,
   errorResponseSchema,
+  schedulerSummarySchema,
+  schedulerMetricsSchema,
 } from './responseSchemas';
 import { testConfig } from '../testing/fixtures';
 import { buildContainer } from '../container';
@@ -76,6 +78,105 @@ describe('HTTP response schemas', () => {
         submissions: ['market-alpha'],
       };
       expect(healthDetailsResponseSchema.parse(response)).toMatchObject(response);
+    });
+  });
+
+  describe('scheduler health schemas', () => {
+    const summary = {
+      enabled: true,
+      lastRefreshStatus: 'failed' as const,
+      lastRefreshAt: '2025-03-01T09:00:00.000Z',
+      consecutiveFailures: 2,
+      circuitBreakerState: 'open' as const,
+      totalRefreshes: 7,
+      totalFailures: 2,
+      installedEntries: 412,
+      minEntries: 1,
+    };
+
+    it('validates the sanctions refresh summary on /health', () => {
+      const response = {
+        status: 'ok',
+        service: 'nft-kyc-hub',
+        version: '0.1.0',
+        startedAt: TEST_NOW,
+        now: TEST_NOW,
+        environment: 'test',
+        adapters: ['eidas-gateway'],
+        sanctionsList: 'eu-consolidated',
+        warnings: [],
+        sanctionsScheduler: summary,
+      };
+
+      expect(healthResponseSchema.parse(response).sanctionsScheduler).toEqual(summary);
+    });
+
+    it('accepts a null summary when no feed is configured', () => {
+      const response = {
+        status: 'ok',
+        service: 'nft-kyc-hub',
+        version: '0.1.0',
+        startedAt: TEST_NOW,
+        now: TEST_NOW,
+        environment: 'test',
+        adapters: ['eidas-gateway'],
+        sanctionsList: 'eu-consolidated',
+        warnings: [],
+        sanctionsScheduler: null,
+      };
+
+      expect(healthResponseSchema.parse(response).sanctionsScheduler).toBeNull();
+    });
+
+    it('rejects an unknown breaker state', () => {
+      expect(() => schedulerSummarySchema.parse({ ...summary, circuitBreakerState: 'ajar' })).toThrow();
+    });
+
+    it('rejects a negative failure count', () => {
+      expect(() => schedulerSummarySchema.parse({ ...summary, totalFailures: -1 })).toThrow();
+    });
+
+    it('validates the full metrics on /v1/health/details', () => {
+      const response = {
+        status: 'ok',
+        ledger: {
+          valid: true,
+          length: 1,
+          headHash: 'a'.repeat(64),
+          brokenAtIndex: null,
+          detail: 'ok',
+        },
+        submissions: ['market-alpha'],
+        sanctionsScheduler: {
+          ...summary,
+          url: 'https://example.test/sanctions.json',
+          intervalMs: 86_400_000,
+          lastError: 'Failed to fetch sanctions feed: 503 Service Unavailable',
+          nextRefreshAt: '2025-03-01T10:00:00.000Z',
+          circuitBreakerOpenedAt: '2025-03-01T09:00:00.000Z',
+          circuitBreakerNextAttemptAt: '2025-03-01T09:10:00.000Z',
+        },
+      };
+
+      const parsed = healthDetailsResponseSchema.parse(response);
+      expect(parsed.sanctionsScheduler).toMatchObject({
+        lastError: 'Failed to fetch sanctions feed: 503 Service Unavailable',
+        circuitBreakerNextAttemptAt: '2025-03-01T09:10:00.000Z',
+      });
+    });
+
+    it('rejects a metrics payload missing the refresh error slot', () => {
+      const { lastError: _omitted, ...withoutError } = {
+        ...summary,
+        url: null,
+        intervalMs: 86_400_000,
+        lastError: 'boom',
+        nextRefreshAt: null,
+        circuitBreakerOpenedAt: null,
+        circuitBreakerNextAttemptAt: null,
+      };
+
+      expect(() => schedulerMetricsSchema.parse(withoutError)).toThrow();
     });
   });
 

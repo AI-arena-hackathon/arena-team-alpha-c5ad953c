@@ -109,6 +109,71 @@ describe('loadConfig', () => {
     expect(withFeed.sanctionsListUrl).toBe('https://example.test/sanctions.json');
   });
 
+  describe('scheduled sanctions feed refresh', () => {
+    it('defaults to a 24h refresh with bounded retries and a 5-failure breaker', () => {
+      const config = loadConfig(env());
+
+      expect(config.sanctionsFeedRefreshEnabled).toBe(true);
+      expect(config.sanctionsFeedRefreshIntervalMs).toBe(86_400_000);
+      expect(config.sanctionsFeedMaxRetries).toBe(3);
+      expect(config.sanctionsFeedBaseRetryDelayMs).toBe(5_000);
+      expect(config.sanctionsFeedMaxRetryDelayMs).toBe(300_000);
+      expect(config.sanctionsFeedCircuitBreakerThreshold).toBe(5);
+      expect(config.sanctionsFeedCircuitBreakerResetTimeoutMs).toBe(600_000);
+      expect(config.sanctionsFeedMinEntries).toBe(1);
+    });
+
+    it('reads operator overrides for interval, retries, breaker and minimum entries', () => {
+      const config = loadConfig(
+        env({
+          SANCTIONS_LIST_URL: 'https://example.test/sanctions.json',
+          SANCTIONS_FEED_REFRESH_ENABLED: 'false',
+          SANCTIONS_FEED_REFRESH_INTERVAL_MS: '3600000',
+          SANCTIONS_FEED_MAX_RETRIES: '0',
+          SANCTIONS_FEED_BASE_RETRY_DELAY_MS: '1000',
+          SANCTIONS_FEED_MAX_RETRY_DELAY_MS: '60000',
+          SANCTIONS_FEED_CIRCUIT_BREAKER_THRESHOLD: '2',
+          SANCTIONS_FEED_CIRCUIT_BREAKER_RESET_TIMEOUT_MS: '30000',
+          SANCTIONS_FEED_MIN_ENTRIES: '500',
+        }),
+      );
+
+      expect(config.sanctionsFeedRefreshEnabled).toBe(false);
+      expect(config.sanctionsFeedRefreshIntervalMs).toBe(3_600_000);
+      expect(config.sanctionsFeedMaxRetries).toBe(0);
+      expect(config.sanctionsFeedBaseRetryDelayMs).toBe(1_000);
+      expect(config.sanctionsFeedMaxRetryDelayMs).toBe(60_000);
+      expect(config.sanctionsFeedCircuitBreakerThreshold).toBe(2);
+      expect(config.sanctionsFeedCircuitBreakerResetTimeoutMs).toBe(30_000);
+      expect(config.sanctionsFeedMinEntries).toBe(500);
+    });
+
+    it('rejects an invalid minimum entry count rather than accepting an empty list', () => {
+      expect(() => loadConfig(env({ SANCTIONS_FEED_MIN_ENTRIES: '0' }))).toThrow();
+    });
+
+    it('rejects a negative retry count', () => {
+      expect(() => loadConfig(env({ SANCTIONS_FEED_MAX_RETRIES: '-1' }))).toThrow();
+    });
+
+    it('treats the documented off-spellings as disabled, not as truthy strings', () => {
+      // The trap: `Boolean("false")` is true, so a naive coerce would leave the
+      // scheduler running when an operator explicitly switched it off.
+      for (const value of ['false', '0', 'no', 'off']) {
+        expect(loadConfig(env({ SANCTIONS_FEED_REFRESH_ENABLED: value })).sanctionsFeedRefreshEnabled)
+          .toBe(false);
+      }
+      for (const value of ['true', '1', 'yes', 'on']) {
+        expect(loadConfig(env({ SANCTIONS_FEED_REFRESH_ENABLED: value })).sanctionsFeedRefreshEnabled)
+          .toBe(true);
+      }
+    });
+
+    it('refuses to guess at a nonsense toggle value', () => {
+      expect(() => loadConfig(env({ SANCTIONS_FEED_REFRESH_ENABLED: 'maybe' }))).toThrow();
+    });
+  });
+
   it('reads eIDAS/FranceConnect JWKS configuration', () => {
     const config = loadConfig(
       env({

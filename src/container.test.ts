@@ -128,6 +128,60 @@ describe('buildContainer', () => {
     expect(typeof app.listen).toBe('function');
     expect(container.config.nodeEnv).toBe('test');
   });
+
+  describe('sanctions feed scheduler wiring', () => {
+    const feedConfig = (overrides: Partial<ReturnType<typeof testConfig>> = {}) =>
+      testConfig({
+        sanctionsListUrl: 'https://example.test/sanctions.json',
+        ...overrides,
+      });
+
+    it('starts a scheduler when a feed URL is configured', () => {
+      const container = buildContainer({
+        config: feedConfig(),
+        clock: fixedClock(TEST_NOW),
+        logger: { info: () => {}, warn: () => {}, error: () => {} },
+      });
+
+      expect(container.sanctionsScheduler).not.toBeNull();
+      expect(container.deps.sanctionsScheduler).toBe(container.sanctionsScheduler);
+      expect(container.sanctionsScheduler?.scheduler.getMetrics().enabled).toBe(true);
+      container.sanctionsScheduler?.stop();
+    });
+
+    it('does not start a scheduler without a feed URL', () => {
+      const container = buildContainer({ config: testConfig(), clock: fixedClock(TEST_NOW) });
+
+      expect(container.sanctionsScheduler).toBeNull();
+    });
+
+    it('does not start a scheduler when the refresh is disabled', () => {
+      const container = buildContainer({
+        config: feedConfig({ sanctionsFeedRefreshEnabled: false }),
+        clock: fixedClock(TEST_NOW),
+      });
+
+      expect(container.sanctionsScheduler).toBeNull();
+    });
+
+    it('passes the configured interval and minimum entry count through', () => {
+      const container = buildContainer({
+        config: feedConfig({
+          sanctionsFeedRefreshIntervalMs: 3_600_000,
+          sanctionsFeedMinEntries: 42,
+        }),
+        clock: fixedClock(TEST_NOW),
+        logger: { info: () => {}, warn: () => {}, error: () => {} },
+      });
+
+      expect(container.sanctionsScheduler?.scheduler.getMetrics()).toMatchObject({
+        url: 'https://example.test/sanctions.json',
+        intervalMs: 3_600_000,
+        minEntries: 42,
+      });
+      container.sanctionsScheduler?.stop();
+    });
+  });
 });
 
 describe('buildKeyring', () => {

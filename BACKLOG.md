@@ -33,6 +33,8 @@ you're actively working on in In Progress, add follow-ups to Todo.
 - [x] Real eIDAS PKI/JWKS validator (replace shared-secret HMAC) — `src/identity/jwksVerifier.ts` (RS256 via jwks-rsa + jsonwebtoken), container prefers JWKS when URI+issuer configured, config schema + `.env.example`, 21 tests (395 total)
 - [x] Live sanctions list feed (replace seeded EU consolidated list) — `loadSanctionsFeed(url)` parses/validates the nightly EU export, `BuildOptions.sanctionsFeed` wired through the container, `src/index.ts` fetches at startup with seeded-list fallback on outage, 7 tests (396 total)
 - [x] Harden `loadSanctionsFeed`: request timeout and response size cap (DoS guard on the upstream feed) — `LoadSanctionsFeedOptions` with `timeoutMs` (default 10s) and `maxResponseSizeBytes` (default 5 MB), stream-based body reading with size enforcement, config schema + env vars, 6 new tests (401 total)
+- [x] Scheduled sanctions-feed refresh with hardened failure paths — `src/services/sanctionsFeedScheduler.ts`: interval refresh, jittered exponential backoff, circuit breaker (closed/open/half-open), `minEntries` guard so a degenerate feed can never replace the live list, single-flight, abortable backoff sleep for prompt `stop()`, `unref()`-ed timers, hot-swap via `RiskEngine.updateScreener`. State on `/health` (summary, no `url`/`lastError`) and `/v1/health/details` (full, authenticated). 8 new config knobs. 58 new tests (460 total). Verified in a live app: outage keeps the list screening and a half-open probe recovers it.
+- [x] Fix `z.coerce.boolean()` treating `"false"` as `true` — replaced with `envBoolean()` accepting `true/false/1/0/yes/no/on/off` and throwing on nonsense, so `SANCTIONS_FEED_REFRESH_ENABLED=false` really disables the scheduler
 
 ## In Progress
 
@@ -46,7 +48,9 @@ you're actively working on in In Progress, add follow-ups to Todo.
 - [ ] Automated retention cleanup scheduler (Lambda + EventBridge)
 - [ ] Consent versioning & re-consent flow for policy updates
 - [ ] Data portability endpoint (GDPR Art. 20) — export subject data
-- [ ] Scheduled sanctions-feed refresh (EventBridge + Lambda) instead of load-once-at-startup
+- [ ] EventBridge/Lambda handler for on-demand sanctions refresh — `SanctionsFeedScheduler.triggerRefresh()` exists and bypasses the breaker, but has no transport; needs a handler + IAM + schedule wiring (reuses the EventBridge work above)
+- [ ] Sanctions-list version audit trail — record which upstream list version and fetch time backed each screening decision in the compliance report
 - [ ] JWKS key-rotation observability: surface cache miss/rotation metrics on `/health`
+- [ ] Alerting wiring: `circuitBreakerState: "open"` is observable on `/health` but nothing pages on it; needs a metric exporter (CloudWatch) for the scheduler counters
 
 (End of file - total 61 lines)

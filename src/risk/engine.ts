@@ -15,6 +15,7 @@ import {
   HIGH_RISK_JURISDICTIONS,
   normaliseCountry,
   sameName,
+  type SanctionsEntry,
 } from './referenceData';
 import { SanctionsScreener } from './sanctions';
 
@@ -60,7 +61,19 @@ export interface RiskEngineInput {
 }
 
 export class RiskEngine {
-  constructor(private readonly screener: SanctionsScreener = new SanctionsScreener()) {}
+  private screener: SanctionsScreener;
+
+  constructor(screener: SanctionsScreener = new SanctionsScreener()) {
+    this.screener = screener;
+  }
+
+  /**
+   * Replace the sanctions screener with a new one. Used by the scheduled feed
+   * refresh, which only ever calls it with a list it has already validated.
+   */
+  updateScreener(entries: SanctionsEntry[], listName?: string): void {
+    this.screener = new SanctionsScreener(entries, listName);
+  }
 
   assess(input: RiskEngineInput): RiskAssessment {
     const sanctionsHits = this.screen(input);

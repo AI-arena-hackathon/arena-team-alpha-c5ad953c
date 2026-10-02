@@ -17,6 +17,22 @@ const hexKey = z
   .string()
   .regex(/^[0-9a-fA-F]{64}$/, 'must be 64 hex characters (32 bytes)');
 
+/**
+ * Boolean from an environment variable or a JSON config file.
+ *
+ * `z.coerce.boolean()` is a trap here: it applies JavaScript truthiness, so the
+ * string "false" — what an operator writes to switch a feature off — becomes
+ * `true`. Only the documented spellings are accepted, and anything else fails
+ * loudly at startup rather than silently choosing a default.
+ */
+const envBoolean = (defaultValue: boolean) =>
+  z
+    .union([z.boolean(), z.enum(['true', 'false', '1', '0', 'yes', 'no', 'on', 'off'])])
+    .transform((value) =>
+      typeof value === 'boolean' ? value : ['true', '1', 'yes', 'on'].includes(value),
+    )
+    .default(defaultValue);
+
 const envSchema = z.object({
   PORT: z.coerce.number().int().min(0).max(65535).default(3000),
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
@@ -55,6 +71,14 @@ const envSchema = z.object({
   SANCTIONS_LIST_URL: z.string().url().optional(),
   SANCTIONS_FEED_TIMEOUT_MS: z.coerce.number().int().positive().default(10_000),
   SANCTIONS_FEED_MAX_SIZE_BYTES: z.coerce.number().int().positive().default(5_242_880),
+  SANCTIONS_FEED_REFRESH_ENABLED: envBoolean(true),
+  SANCTIONS_FEED_REFRESH_INTERVAL_MS: z.coerce.number().int().positive().default(86_400_000),
+  SANCTIONS_FEED_MAX_RETRIES: z.coerce.number().int().min(0).max(10).default(3),
+  SANCTIONS_FEED_BASE_RETRY_DELAY_MS: z.coerce.number().int().positive().default(5_000),
+  SANCTIONS_FEED_MAX_RETRY_DELAY_MS: z.coerce.number().int().positive().default(300_000),
+  SANCTIONS_FEED_CIRCUIT_BREAKER_THRESHOLD: z.coerce.number().int().positive().default(5),
+  SANCTIONS_FEED_CIRCUIT_BREAKER_RESET_TIMEOUT_MS: z.coerce.number().int().positive().default(600_000),
+  SANCTIONS_FEED_MIN_ENTRIES: z.coerce.number().int().positive().default(1),
 
   // Enabled e-ID providers (comma-separated: eidas-gateway,franceconnect)
   // Defaults to both in development; in production at least one must be explicitly enabled.
@@ -113,6 +137,26 @@ export interface AppConfig {
   sanctionsFeedTimeoutMs: number;
   /** Maximum response body size for sanctions feed (bytes). */
   sanctionsFeedMaxSizeBytes: number;
+  /** Enable scheduled sanctions feed refresh. */
+  sanctionsFeedRefreshEnabled: boolean;
+  /** Refresh interval for sanctions feed (ms). */
+  sanctionsFeedRefreshIntervalMs: number;
+  /** Maximum retry attempts for feed refresh. */
+  sanctionsFeedMaxRetries: number;
+  /** Base retry delay for feed refresh (ms). */
+  sanctionsFeedBaseRetryDelayMs: number;
+  /** Maximum retry delay for feed refresh (ms). */
+  sanctionsFeedMaxRetryDelayMs: number;
+  /** Circuit breaker: open after this many consecutive failures. */
+  sanctionsFeedCircuitBreakerThreshold: number;
+  /** Circuit breaker: time in ms before attempting to close (half-open). */
+  sanctionsFeedCircuitBreakerResetTimeoutMs: number;
+  /**
+   * Refuse to install a refreshed sanctions feed with fewer entries than this.
+   * Guards against an upstream outage silently replacing the list with an
+   * empty one and stopping screening.
+   */
+  sanctionsFeedMinEntries: number;
   /** Enabled e-ID provider IDs (e.g., ['eidas-gateway', 'franceconnect']). */
   enabledEidProviders: string[];
   /** Warnings surfaced by /health so operators know a dev default is in use. */
@@ -305,6 +349,14 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     sanctionsListUrl: parsed.SANCTIONS_LIST_URL ?? null,
     sanctionsFeedTimeoutMs: parsed.SANCTIONS_FEED_TIMEOUT_MS,
     sanctionsFeedMaxSizeBytes: parsed.SANCTIONS_FEED_MAX_SIZE_BYTES,
+    sanctionsFeedRefreshEnabled: parsed.SANCTIONS_FEED_REFRESH_ENABLED,
+    sanctionsFeedRefreshIntervalMs: parsed.SANCTIONS_FEED_REFRESH_INTERVAL_MS,
+    sanctionsFeedMaxRetries: parsed.SANCTIONS_FEED_MAX_RETRIES,
+    sanctionsFeedBaseRetryDelayMs: parsed.SANCTIONS_FEED_BASE_RETRY_DELAY_MS,
+    sanctionsFeedMaxRetryDelayMs: parsed.SANCTIONS_FEED_MAX_RETRY_DELAY_MS,
+    sanctionsFeedCircuitBreakerThreshold: parsed.SANCTIONS_FEED_CIRCUIT_BREAKER_THRESHOLD,
+    sanctionsFeedCircuitBreakerResetTimeoutMs: parsed.SANCTIONS_FEED_CIRCUIT_BREAKER_RESET_TIMEOUT_MS,
+    sanctionsFeedMinEntries: parsed.SANCTIONS_FEED_MIN_ENTRIES,
     enabledEidProviders,
     warnings,
     dynamodbTable,

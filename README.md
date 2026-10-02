@@ -96,6 +96,32 @@ Sanctions matching is token‑exact after diacritic and punctuation normalisatio
 date of birth. Fuzzy matching is deliberately avoided: a false positive blocks a
 real creator, a false negative is a regulatory failure.
 
+### Live sanctions feed and how it fails
+
+Set `SANCTIONS_LIST_URL` and the screener is refreshed on a schedule
+(`src/services/sanctionsFeedScheduler.ts`) instead of being frozen at boot. The
+interesting behaviour is what happens when the upstream EU export misbehaves,
+because a compliance service must never quietly stop screening:
+
+* **Retries with equal‑jitter exponential backoff** — transient errors recover
+  on their own, and the jitter stops every replica retrying in lockstep.
+* **Circuit breaker** — after N consecutive failed refreshes the upstream is not
+  called at all until the reset window opens, when exactly one probe is allowed.
+  `GET /health` shows the breaker state, the failure count and the last error.
+* **No degenerate installs** — a feed with fewer than `SANCTIONS_FEED_MIN_ENTRIES`
+  entries is treated as a failure. An upstream outage that returns `[]` would
+  otherwise install an *empty* list and screen nobody; instead the last known
+  good list stays live.
+* **Previous list survives a failure** — a failed refresh never reaches the risk
+  engine, so ingestion keeps working against the last good list.
+* **Prompt, clean shutdown** — `stop()` clears the timer *and* interrupts an
+  in‑flight backoff wait, and every timer is unref‑ed so the scheduler can never
+  keep the process alive.
+* **Single flight** — a scheduled refresh and an operator‑triggered one share a
+  single fetch, so a slow response cannot overwrite a newer list.
+  `scheduler.triggerRefresh()` is also the entry point for an
+  EventBridge‑invoked Lambda.
+
 ## Running it
 
 Requires Node 20+.
@@ -108,7 +134,7 @@ set -a; . ./.env; set +a     # or export the variables your way
 npm run dev                  # ts-node, hot iteration
 npm run build && npm start   # compiled dist/
 
-npm test                     # jest (212 tests)
+npm test                     # jest (460 tests)
 npm run test:coverage        # with coverage thresholds enforced
 npm run typecheck            # tsc --noEmit
 npm run lint                 # eslint
@@ -205,7 +231,8 @@ src/
   risk/               sanctions screener, weighted scoring engine, reference data
   ledger/             append-only tamper-evident hash chain
   security/           AES-256-GCM envelopes, credential digests, PII detectors
-  services/           KYC ingestion, listing gate, compliance reporting
+  services/           KYC ingestion, listing gate, compliance reporting,
+                      scheduled sanctions feed refresh
   store/              repository port (in-memory reference implementation)
   util/               canonical JSON, clock, ids
 ```
@@ -221,6 +248,9 @@ paths — the HTTP suite starts a real server and talks to it over TCP.
   product code — see the backlog item.
 * Assertions are validated with a shared‑secret HMAC rather than a real eIDAS
   PKI/JWKS check. Swapping the validator is one method per adapter.
-* The sanctions list is a small seeded subset of the EU consolidated list, not a
-  live feed.
-* Report signatures are HMAC‑SHA256; the spec's ECDSA‑signed PDF is not built yet.
+* The default sanctions list is a small seeded subset of the EU consolidated
+  list. A live feed is supported (`SANCTIONS_LIST_URL`) and refreshed on a
+  schedule, but no production EU export URL is wired up here, and the parsed
+  feed is held in memory — a restart re-fetches it.
+* Reports are signed with ECDSA P‑256 when keys are configured and fall back to
+  HMAC‑SHA256 otherwise; the PDF is assembled by `pdf-lib`.

@@ -232,4 +232,51 @@ describe('config.schema.json', () => {
       expect(validate(example)).toBe(true);
     }
   });
+
+  describe('scheduled sanctions feed refresh', () => {
+    it('accepts the documented refresh knobs', () => {
+      const config = {
+        SANCTIONS_LIST_URL: 'https://example.test/sanctions.json',
+        SANCTIONS_FEED_REFRESH_ENABLED: true,
+        SANCTIONS_FEED_REFRESH_INTERVAL_MS: 3600000,
+        SANCTIONS_FEED_MAX_RETRIES: 0,
+        SANCTIONS_FEED_BASE_RETRY_DELAY_MS: 1000,
+        SANCTIONS_FEED_MAX_RETRY_DELAY_MS: 60000,
+        SANCTIONS_FEED_CIRCUIT_BREAKER_THRESHOLD: 2,
+        SANCTIONS_FEED_CIRCUIT_BREAKER_RESET_TIMEOUT_MS: 30000,
+        SANCTIONS_FEED_MIN_ENTRIES: 500,
+      };
+      expect(validate(config)).toBe(true);
+    });
+
+    it('rejects a refresh interval faster than one minute', () => {
+      const config = { SANCTIONS_FEED_REFRESH_INTERVAL_MS: 1000 };
+      expect(validate(config)).toBe(false);
+      expect(validate.errors).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ keyword: 'minimum', instancePath: '/SANCTIONS_FEED_REFRESH_INTERVAL_MS' }),
+        ]),
+      );
+    });
+
+    it('rejects a zero minimum entry count, which would allow an empty screening list', () => {
+      const config = { SANCTIONS_FEED_MIN_ENTRIES: 0 };
+      expect(validate(config)).toBe(false);
+      expect(validate.errors).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ keyword: 'minimum', instancePath: '/SANCTIONS_FEED_MIN_ENTRIES' }),
+        ]),
+      );
+    });
+
+    it('rejects a non-boolean refresh toggle', () => {
+      const config = { SANCTIONS_FEED_REFRESH_ENABLED: 'yes' };
+      expect(validate(config)).toBe(false);
+      expect(validate.errors).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ keyword: 'type', instancePath: '/SANCTIONS_FEED_REFRESH_ENABLED' }),
+        ]),
+      );
+    });
+  });
 });

@@ -111,6 +111,60 @@
       "default": 5242880,
       "description": "Maximum response body size for sanctions feed in bytes (default: 5242880 = 5 MB, max: 52428800 = 50 MB)"
     },
+    "SANCTIONS_FEED_REFRESH_ENABLED": {
+      "type": "boolean",
+      "default": true,
+      "description": "Periodically refresh the live sanctions feed instead of loading it once at startup (requires SANCTIONS_LIST_URL)"
+    },
+    "SANCTIONS_FEED_REFRESH_INTERVAL_MS": {
+      "type": "integer",
+      "minimum": 60000,
+      "maximum": 604800000,
+      "default": 86400000,
+      "description": "Interval between scheduled sanctions feed refreshes in milliseconds (default: 86400000 = 24h, min: 60000 = 1min)"
+    },
+    "SANCTIONS_FEED_MAX_RETRIES": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 10,
+      "default": 3,
+      "description": "Retries per scheduled refresh after a failed fetch (0 = no retries)"
+    },
+    "SANCTIONS_FEED_BASE_RETRY_DELAY_MS": {
+      "type": "integer",
+      "minimum": 100,
+      "maximum": 60000,
+      "default": 5000,
+      "description": "Base delay of the exponential retry backoff in milliseconds (default: 5000)"
+    },
+    "SANCTIONS_FEED_MAX_RETRY_DELAY_MS": {
+      "type": "integer",
+      "minimum": 1000,
+      "maximum": 3600000,
+      "default": 300000,
+      "description": "Cap for the exponential retry backoff in milliseconds (default: 300000 = 5min, max: 3600000 = 1h)"
+    },
+    "SANCTIONS_FEED_CIRCUIT_BREAKER_THRESHOLD": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 100,
+      "default": 5,
+      "description": "Consecutive failed refreshes after which the breaker opens and stops calling the upstream feed (default: 5)"
+    },
+    "SANCTIONS_FEED_CIRCUIT_BREAKER_RESET_TIMEOUT_MS": {
+      "type": "integer",
+      "minimum": 1000,
+      "maximum": 86400000,
+      "default": 600000,
+      "description": "Time before an open breaker allows one half-open probe request in milliseconds (default: 600000 = 10min)"
+    },
+    "SANCTIONS_FEED_MIN_ENTRIES": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 1000000,
+      "default": 1,
+      "description": "Refuse to install a refreshed feed with fewer entries than this, so an upstream outage cannot silently empty the screening list (default: 1)"
+    },
     "ENABLED_EID_PROVIDERS": {
       "type": "string",
       "pattern": "^(?:eidas-gateway|franceconnect)(?:,(?:eidas-gateway|franceconnect))*$",

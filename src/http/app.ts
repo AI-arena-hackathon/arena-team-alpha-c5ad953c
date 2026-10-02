@@ -8,6 +8,10 @@ import type { ConsentService } from '../services/consentService';
 import type { KycRepository } from '../store/repository';
 import type { AppConfig } from '../config';
 import type { Clock } from '../util/clock';
+import {
+  toSchedulerSummary,
+  type SanctionsFeedSchedulerHandle,
+} from '../services/sanctionsFeedScheduler';
 import { partnerAuth } from './middleware/auth';
 import { asyncHandler, errorHandler, HttpError, notFoundHandler } from './middleware/errors';
 import {
@@ -34,6 +38,7 @@ export interface AppDeps {
   ledger: LedgerAdapter;
   providerIds: string[];
   startedAt: Date;
+  sanctionsScheduler: SanctionsFeedSchedulerHandle | null;
 }
 
 const API = '/v1';
@@ -71,6 +76,7 @@ export function createApp(deps: AppDeps): Express {
       adapters: deps.providerIds,
       sanctionsList: deps.config.sanctionsList,
       warnings: deps.config.warnings,
+      sanctionsScheduler: toSchedulerSummary(deps.sanctionsScheduler?.scheduler.getMetrics()),
     });
   });
 
@@ -80,6 +86,7 @@ export function createApp(deps: AppDeps): Express {
       status: chain.valid ? 'ok' : 'degraded',
       ledger: chain,
       submissions: deps.config.partners.map((partner) => partner.marketplaceId),
+      sanctionsScheduler: deps.sanctionsScheduler?.scheduler.getMetrics() ?? null,
     });
   }));
 

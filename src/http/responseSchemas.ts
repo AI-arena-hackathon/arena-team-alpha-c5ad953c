@@ -5,6 +5,33 @@ import { z } from 'zod';
  * responses and can be used for contract testing or client generation.
  */
 
+/**
+ * Refresh health of the live sanctions feed, as reported by `/health`.
+ * `lastError` and the feed URL are deliberately absent from this summary: they
+ * are only served on the authenticated `/v1/health/details`.
+ */
+export const schedulerSummarySchema = z.object({
+  enabled: z.boolean(),
+  lastRefreshStatus: z.enum(['success', 'failed', 'never']),
+  lastRefreshAt: z.string().datetime({ offset: true }).nullable(),
+  consecutiveFailures: z.number().int().nonnegative(),
+  circuitBreakerState: z.enum(['closed', 'open', 'half-open']),
+  totalRefreshes: z.number().int().nonnegative(),
+  totalFailures: z.number().int().nonnegative(),
+  installedEntries: z.number().int().nonnegative().nullable(),
+  minEntries: z.number().int().positive(),
+});
+
+/** Full scheduler metrics, as reported by the authenticated `/v1/health/details`. */
+export const schedulerMetricsSchema = schedulerSummarySchema.extend({
+  url: z.string().nullable(),
+  intervalMs: z.number().int().positive(),
+  lastError: z.string().nullable(),
+  nextRefreshAt: z.string().datetime({ offset: true }).nullable(),
+  circuitBreakerOpenedAt: z.string().datetime({ offset: true }).nullable(),
+  circuitBreakerNextAttemptAt: z.string().datetime({ offset: true }).nullable(),
+});
+
 export const healthResponseSchema = z.object({
   status: z.literal('ok'),
   service: z.literal('nft-kyc-hub'),
@@ -15,6 +42,7 @@ export const healthResponseSchema = z.object({
   adapters: z.array(z.string()),
   sanctionsList: z.string(),
   warnings: z.array(z.string()),
+  sanctionsScheduler: schedulerSummarySchema.nullish(),
 });
 
 export const healthDetailsResponseSchema = z.object({
@@ -27,6 +55,7 @@ export const healthDetailsResponseSchema = z.object({
     detail: z.string(),
   }),
   submissions: z.array(z.string()),
+  sanctionsScheduler: schedulerMetricsSchema.nullish(),
 });
 
 export const kycSubmitResponseSchema = z.object({

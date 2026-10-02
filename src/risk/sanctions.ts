@@ -11,6 +11,19 @@ export interface SanctionsFeed {
 }
 
 /**
+ * Is this feed fit to screen against?
+ *
+ * `loadSanctionsFeed` drops malformed rows rather than failing, so a feed whose
+ * schema changed upstream can parse successfully into (almost) nothing. Callers
+ * that *install* a list must gate on this: an empty list is worse than a stale
+ * one, because it silently stops every future screening. Both install sites —
+ * the boot fetch and the scheduled refresh — go through this predicate.
+ */
+export function isFeedUsable(feed: SanctionsFeed, minEntries = 1): boolean {
+  return feed.entries.length >= minEntries;
+}
+
+/**
  * Sanctions / PEP screening.
  *
  * Matching is exact on the normalised name (token set, order-independent) and

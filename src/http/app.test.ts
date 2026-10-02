@@ -1,8 +1,10 @@
 import { once } from 'node:events';
+import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import type { Server } from 'node:http';
 import { buildApp } from '../container';
 import { createApp } from '../http/app';
+import { healthDetailsResponseSchema, healthResponseSchema } from './responseSchemas';
 import {
   eidasAssertion,
   healthySubmission,
@@ -406,5 +408,174 @@ describe('marketplace isolation over HTTP', () => {
     const report = await container.reportService.generate('market-beta');
     expect(report.totals.submissions).toBe(0);
     expect(await container.kycService.getRecord('market-beta', 'kyc_iso_0001')).toBeUndefined();
+  });
+});
+/**
+ * End-to-end reliability check for the live sanctions feed: a real HTTP feed
+ * server, the real scheduler with real timers, the real risk engine. It proves
+ * the scheduled refresh actually reaches the screener and is visible on the
+ * health endpoints, and that a dead feed degrades instead of breaking ingestion.
+ */
+describe('sanctions feed refresh over HTTP', () => {
+  const FEED_ENTRY = {
+    reference: 'EU-FEED-77',
+    name: 'Katya Belova Sorokin',
+    dateOfBirth: '1968-11-30',
+    programme: 'EU 833/2014 — asset freezes',
+    listName: 'eu-consolidated',
+  };
+
+  let feedServer: Server;
+  let feedUrl = '';
+  let feedHits = 0;
+  let feedHealthy = true;
+
+  function startFeedServer(): Promise<void> {
+    feedServer = createServer((_req, res) => {
+      feedHits += 1;
+      if (!feedHealthy) {
+        res.writeHead(503, { 'content-type': 'application/json' });
+        res.end('{"error":"upstream unavailable"}');
+        return;
+      }
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ listName: 'eu-consolidated', entries: [FEED_ENTRY] }));
+    });
+    return new Promise((resolve) => {
+      feedServer.listen(0, '127.0.0.1', () => {
+        feedUrl = `http://127.0.0.1:${(feedServer.address() as AddressInfo).port}/sanctions.json`;
+        resolve();
+      });
+    });
+  }
+
+  async function startApi(url: string): Promise<{ baseUrl: string; stop: () => void }> {
+    const { container } = buildApp({
+      config: testConfig({
+        sanctionsListUrl: url,
+        // Long interval: the test drives the first refresh, nothing else.
+        sanctionsFeedRefreshIntervalMs: 3_600_000,
+        sanctionsFeedMaxRetries: 0,
+        sanctionsFeedBaseRetryDelayMs: 10,
+      }),
+      clock: fixedClock(TEST_NOW),
+      startedAt: new Date(TEST_NOW),
+      logger: { info: () => {}, warn: () => {}, error: () => {} },
+    });
+    const server: Server = createApp(container.deps).listen(0);
+    await once(server, 'listening');
+    return {
+      baseUrl: `http://127.0.0.1:${(server.address() as AddressInfo).port}`,
+      stop: () => {
+        container.sanctionsScheduler?.stop();
+        server.close();
+      },
+    };
+  }
+
+  /** Poll until the scheduler reports a settled state, or give up. */
+  async function waitForRefresh(baseUrl: string): Promise<Record<string, unknown>> {
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      const body = (await (await fetch(`${baseUrl}/health`)).json()) as Record<string, unknown>;
+      const scheduler = body.sanctionsScheduler as Record<string, unknown>;
+      if (scheduler?.lastRefreshStatus !== 'never') return scheduler;
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    throw new Error('sanctions feed refresh never settled');
+  }
+
+  beforeAll(async () => {
+    await startFeedServer();
+  });
+
+  afterAll(async () => {
+    feedServer.close();
+  });
+
+  it('refreshes the list, screens against it and reports on /health', async () => {
+    const api = await startApi(feedUrl);
+    try {
+      const summary = await waitForRefresh(api.baseUrl);
+
+      expect(summary).toMatchObject({
+        enabled: true,
+        lastRefreshStatus: 'success',
+        consecutiveFailures: 0,
+        circuitBreakerState: 'closed',
+        installedEntries: 1,
+      });
+      // The unauthenticated probe must not leak the feed location or errors.
+      expect(summary).not.toHaveProperty('url');
+      expect(summary).not.toHaveProperty('lastError');
+
+      const health = (await (await fetch(`${api.baseUrl}/health`)).json()) as Record<string, unknown>;
+      expect(healthResponseSchema.parse(health)).toMatchObject({ status: 'ok' });
+
+      // The fetched entry is live: a matching seller is now rejected.
+      const submission = healthySubmission({
+        submissionId: 'kyc_feed_0001',
+        subject: {
+          ...healthySubmission().subject,
+          subjectId: 'seller-feed',
+          fullName: FEED_ENTRY.name,
+          dateOfBirth: FEED_ENTRY.dateOfBirth,
+        },
+      });
+      const response = await fetch(`${api.baseUrl}/v1/kyc/submissions`, {
+        method: 'POST',
+        headers: authHeaders(),
+        body: JSON.stringify(submission),
+      });
+      const created = (await response.json()) as Record<string, unknown>;
+
+      expect(response.status).toBe(201);
+      expect(created.decision).toBe('reject');
+      expect(
+        (created.risk as Record<string, unknown>).sanctionsHits,
+      ).toEqual([expect.objectContaining({ reference: 'EU-FEED-77', matchedOn: 'name_and_dob' })]);
+
+      const details = (await (
+        await fetch(`${api.baseUrl}/v1/health/details`, { headers: authHeaders() })
+      ).json()) as Record<string, unknown>;
+      expect(healthDetailsResponseSchema.parse(details)).toMatchObject({ status: 'ok' });
+      expect(details.sanctionsScheduler).toMatchObject({
+        url: feedUrl,
+        lastRefreshStatus: 'success',
+        lastError: null,
+        minEntries: 1,
+      });
+    } finally {
+      api.stop();
+    }
+  });
+
+  it('keeps serving the previous list when the feed goes down', async () => {
+    feedHealthy = false;
+    feedHits = 0;
+    const api = await startApi(feedUrl);
+    try {
+      const summary = await waitForRefresh(api.baseUrl);
+
+      expect(summary).toMatchObject({
+        lastRefreshStatus: 'failed',
+        circuitBreakerState: 'closed',
+        installedEntries: null,
+        totalFailures: 1,
+      });
+      expect(feedHits).toBe(1); // maxRetries: 0 — one attempt, no hammering
+
+      // Ingestion still works, and screening still runs on the seeded list.
+      const response = await postJson(
+        `${api.baseUrl}/v1/kyc/submissions`,
+        healthySubmission({ submissionId: 'kyc_feed_0002' }),
+        authHeaders(),
+      );
+
+      expect(response.status).toBe(201);
+      expect(response.body.decision).toBe('approve');
+    } finally {
+      api.stop();
+      feedHealthy = true;
+    }
   });
 });
