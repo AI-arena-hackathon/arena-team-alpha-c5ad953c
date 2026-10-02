@@ -32,6 +32,7 @@ you're actively working on in In Progress, add follow-ups to Todo.
 - [x] ECDSA P-256 signed PDF reports (replace HMAC-SHA256 JSON) — `src/services/reportService.ts`, config schema, container wiring, 6 new tests (361 total)
 - [x] Real eIDAS PKI/JWKS validator (replace shared-secret HMAC) — `src/identity/jwksVerifier.ts` (RS256 via jwks-rsa + jsonwebtoken), container prefers JWKS when URI+issuer configured, config schema + `.env.example`, 21 tests (395 total)
 - [x] Live sanctions list feed (replace seeded EU consolidated list) — `loadSanctionsFeed(url)` parses/validates the nightly EU export, `BuildOptions.sanctionsFeed` wired through the container, `src/index.ts` fetches at startup with seeded-list fallback on outage, 7 tests (396 total)
+- [x] Harden `loadSanctionsFeed`: request timeout and response size cap (DoS guard on the upstream feed) — `LoadSanctionsFeedOptions` with `timeoutMs` (default 10s) and `maxResponseSizeBytes` (default 5 MB), stream-based body reading with size enforcement, config schema + env vars, 6 new tests (401 total)
 
 ## In Progress
 
@@ -45,7 +46,6 @@ you're actively working on in In Progress, add follow-ups to Todo.
 - [ ] Automated retention cleanup scheduler (Lambda + EventBridge)
 - [ ] Consent versioning & re-consent flow for policy updates
 - [ ] Data portability endpoint (GDPR Art. 20) — export subject data
-- [ ] Harden `loadSanctionsFeed`: request timeout and response size cap (DoS guard on the upstream feed)
 - [ ] Scheduled sanctions-feed refresh (EventBridge + Lambda) instead of load-once-at-startup
 - [ ] JWKS key-rotation observability: surface cache miss/rotation metrics on `/health`
 

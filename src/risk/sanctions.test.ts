@@ -1,4 +1,4 @@
-import { SanctionsScreener, loadSanctionsFeed } from './sanctions';
+import { SanctionsScreener, loadSanctionsFeed, type LoadSanctionsFeedOptions } from './sanctions';
 import { EU_CONSOLIDATED_SANCTIONS, type SanctionsEntry } from './referenceData';
 
 const ENTRY: SanctionsEntry = {
@@ -9,6 +9,31 @@ const ENTRY: SanctionsEntry = {
   programme: 'EU 833/2014 — asset freezes',
   listName: 'test-list',
 };
+
+/** Create a mock Response with a readable body stream from a JSON-serializable body. */
+function mockResponse(body: unknown, options: { ok?: boolean; status?: number; statusText?: string; headers?: Record<string, string> } = {}): Response {
+  const json = JSON.stringify(body);
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream({
+    start(controller) {
+      controller.enqueue(encoder.encode(json));
+      controller.close();
+    },
+  });
+  const headersObj = new Headers({
+    'content-length': String(json.length),
+    'content-type': 'application/json',
+    ...options.headers,
+  });
+  return {
+    ok: options.ok ?? true,
+    status: options.status ?? 200,
+    statusText: options.statusText ?? 'OK',
+    headers: headersObj,
+    body: stream,
+    json: async () => body,
+  } as unknown as Response;
+}
 
 describe('SanctionsScreener', () => {
   const screener = new SanctionsScreener([ENTRY], 'test-list');
@@ -102,8 +127,9 @@ describe('SanctionsScreener', () => {
 });
 
 describe('loadSanctionsFeed', () => {
-  const ok = (body: unknown): typeof fetch =>
-    (async () => ({ ok: true, json: async () => body })) as unknown as typeof fetch;
+  const ok = (body: unknown): LoadSanctionsFeedOptions => ({
+    fetchImpl: async () => mockResponse(body),
+  });
 
   it('loads a named feed and preserves entry fields', async () => {
     const feed = await loadSanctionsFeed(
@@ -156,11 +182,9 @@ describe('loadSanctionsFeed', () => {
   });
 
   it('throws when the endpoint responds with an error status', async () => {
-    const failing = (async () => ({
-      ok: false,
-      status: 503,
-      statusText: 'Service Unavailable',
-    })) as unknown as typeof fetch;
+    const failing: LoadSanctionsFeedOptions = {
+      fetchImpl: async () => mockResponse(null, { ok: false, status: 503, statusText: 'Service Unavailable' }),
+    };
     await expect(loadSanctionsFeed('https://example.test/sanctions.json', failing)).rejects.toThrow(
       /503 Service Unavailable/,
     );
@@ -170,5 +194,79 @@ describe('loadSanctionsFeed', () => {
     await expect(
       loadSanctionsFeed('https://example.test/sanctions.json', ok('not-a-feed')),
     ).rejects.toThrow(/must be a JSON object or array/);
+  });
+
+  describe('timeout and size limits', () => {
+    it('times out when the request exceeds the timeout', async () => {
+      const slow: LoadSanctionsFeedOptions = {
+        fetchImpl: async (input: string | URL | Request, init?: RequestInit) => {
+          await new Promise((resolve, reject) => {
+            const signal = init?.signal as AbortSignal | undefined;
+            if (signal?.aborted) {
+              reject(new DOMException('Aborted', 'AbortError'));
+              return;
+            }
+            const timeout = setTimeout(resolve, 50);
+            signal?.addEventListener('abort', () => {
+              clearTimeout(timeout);
+              reject(new DOMException('Aborted', 'AbortError'));
+            });
+          });
+          return mockResponse([ENTRY]);
+        },
+        timeoutMs: 10,
+      };
+      await expect(loadSanctionsFeed('https://example.test/sanctions.json', slow)).rejects.toThrow(
+        /timed out after 10 ms/,
+      );
+    });
+
+    it('rejects responses exceeding the size limit (declared content-length)', async () => {
+      const large: LoadSanctionsFeedOptions = {
+        fetchImpl: (async () => ({
+          ok: true,
+          headers: new Headers({ 'content-length': '10000000' }), // 10 MB
+          json: async () => [ENTRY],
+        })) as unknown as typeof fetch,
+        maxResponseSizeBytes: 1024, // 1 KB limit
+      };
+      await expect(loadSanctionsFeed('https://example.test/sanctions.json', large)).rejects.toThrow(
+        /Response too large/,
+      );
+    });
+
+    it('rejects responses exceeding the size limit (streamed body)', async () => {
+      const largeBody = JSON.stringify({ entries: Array(1000).fill(ENTRY) }); // ~large payload
+      const large: LoadSanctionsFeedOptions = {
+        fetchImpl: (async () => ({
+          ok: true,
+          body: new ReadableStream({
+            start(controller) {
+              controller.enqueue(new TextEncoder().encode(largeBody));
+              controller.close();
+            },
+          }),
+        })) as unknown as typeof fetch,
+        maxResponseSizeBytes: 100, // tiny limit
+      };
+      await expect(loadSanctionsFeed('https://example.test/sanctions.json', large)).rejects.toThrow(
+        /exceeds size limit/,
+      );
+    });
+
+    it('uses default timeout and size limit when not specified', async () => {
+      const feed = await loadSanctionsFeed('https://example.test/sanctions.json', ok([ENTRY]));
+      expect(feed.entries).toHaveLength(1);
+    });
+
+    it('allows custom timeout and size limit to be set', async () => {
+      const customOptions: LoadSanctionsFeedOptions = {
+        fetchImpl: async () => mockResponse([ENTRY]),
+        timeoutMs: 5000,
+        maxResponseSizeBytes: 1024 * 1024, // 1 MB
+      };
+      const feed = await loadSanctionsFeed('https://example.test/sanctions.json', customOptions);
+      expect(feed.entries).toHaveLength(1);
+    });
   });
 });

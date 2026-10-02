@@ -86,30 +86,107 @@ function isEntityEntry(entry: SanctionsEntry): boolean {
  * Accepts either `{ listName, entries: [...] }` or a bare top-level array.
  * Entries missing a reference, name or programme are dropped rather than
  * screened with partial data — a malformed row must never silently match.
+ *
+ * Hardened against DoS:
+ * - Request timeout (default 10s) via AbortController
+ * - Response body size limit (default 5 MB) to prevent memory exhaustion
  */
-export async function loadSanctionsFeed(url: string, fetchImpl: typeof fetch = fetch): Promise<SanctionsFeed> {
-  const response = await fetchImpl(url);
-  if (!response.ok) {
-    throw new Error(`Failed to fetch sanctions feed: ${response.status} ${response.statusText}`);
+export interface LoadSanctionsFeedOptions {
+  /** Request timeout in milliseconds. Default: 10_000 (10s). */
+  timeoutMs?: number;
+  /** Maximum response body size in bytes. Default: 5_242_880 (5 MB). */
+  maxResponseSizeBytes?: number;
+  /** Custom fetch implementation (for testing). */
+  fetchImpl?: typeof fetch;
+}
+
+const DEFAULT_TIMEOUT_MS = 10_000;
+const DEFAULT_MAX_RESPONSE_SIZE = 5 * 1024 * 1024; // 5 MB
+
+async function readLimitedJson<T>(response: Response, maxBytes: number): Promise<T> {
+  const headers = response.headers;
+  const contentLength = headers?.get?.('content-length') ?? null;
+  if (contentLength !== null) {
+    const declaredLength = parseInt(contentLength, 10);
+    if (!Number.isNaN(declaredLength) && declaredLength > maxBytes) {
+      throw new Error(`Response too large: ${declaredLength} bytes (limit ${maxBytes} bytes)`);
+    }
   }
-  const data: unknown = await response.json();
-  const feed = Array.isArray(data) ? { entries: data } : data;
-  if (typeof feed !== 'object' || feed === null || Array.isArray(feed)) {
-    throw new Error('Sanctions feed must be a JSON object or array');
+
+  const reader = response.body?.getReader?.();
+  if (!reader) {
+    throw new Error('Response body is not readable');
   }
-  const record = feed as Record<string, unknown>;
-  const listName = typeof record.listName === 'string' ? record.listName : undefined;
-  const rawEntries = Array.isArray(record.entries) ? record.entries : [];
-  const entries: SanctionsEntry[] = rawEntries
-    .filter((entry): entry is Record<string, unknown> => typeof entry === 'object' && entry !== null && !Array.isArray(entry))
-    .map((entry) => ({
-      reference: typeof entry.reference === 'string' ? entry.reference : '',
-      name: typeof entry.name === 'string' ? entry.name : '',
-      dateOfBirth: typeof entry.dateOfBirth === 'string' ? entry.dateOfBirth : undefined,
-      aliases: Array.isArray(entry.aliases) ? entry.aliases.filter((a): a is string => typeof a === 'string') : undefined,
-      programme: typeof entry.programme === 'string' ? entry.programme : '',
-      listName: typeof entry.listName === 'string' ? entry.listName : undefined,
-    }))
-    .filter((entry) => entry.reference && entry.name && entry.programme);
-  return { listName, entries };
+
+  const chunks: Uint8Array[] = [];
+  let totalBytes = 0;
+
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      totalBytes += value.length;
+      if (totalBytes > maxBytes) {
+        throw new Error(`Response exceeds size limit of ${maxBytes} bytes`);
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  const combined = new Uint8Array(totalBytes);
+  let offset = 0;
+  for (const chunk of chunks) {
+    combined.set(chunk, offset);
+    offset += chunk.length;
+  }
+
+  const text = new TextDecoder().decode(combined);
+  return JSON.parse(text) as T;
+}
+
+export async function loadSanctionsFeed(
+  url: string,
+  options: LoadSanctionsFeedOptions = {},
+): Promise<SanctionsFeed> {
+  const { timeoutMs = DEFAULT_TIMEOUT_MS, maxResponseSizeBytes = DEFAULT_MAX_RESPONSE_SIZE, fetchImpl = fetch } = options;
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const response = await fetchImpl(url, { signal: controller.signal });
+    if (!response.ok) {
+      throw new Error(`Failed to fetch sanctions feed: ${response.status} ${response.statusText}`);
+    }
+
+    const data: unknown = await readLimitedJson(response, maxResponseSizeBytes);
+    const feed = Array.isArray(data) ? { entries: data } : data;
+    if (typeof feed !== 'object' || feed === null || Array.isArray(feed)) {
+      throw new Error('Sanctions feed must be a JSON object or array');
+    }
+    const record = feed as Record<string, unknown>;
+    const listName = typeof record.listName === 'string' ? record.listName : undefined;
+    const rawEntries = Array.isArray(record.entries) ? record.entries : [];
+    const entries: SanctionsEntry[] = rawEntries
+      .filter((entry): entry is Record<string, unknown> => typeof entry === 'object' && entry !== null && !Array.isArray(entry))
+      .map((entry) => ({
+        reference: typeof entry.reference === 'string' ? entry.reference : '',
+        name: typeof entry.name === 'string' ? entry.name : '',
+        dateOfBirth: typeof entry.dateOfBirth === 'string' ? entry.dateOfBirth : undefined,
+        aliases: Array.isArray(entry.aliases) ? entry.aliases.filter((a): a is string => typeof a === 'string') : undefined,
+        programme: typeof entry.programme === 'string' ? entry.programme : '',
+        listName: typeof entry.listName === 'string' ? entry.listName : undefined,
+      }))
+      .filter((entry) => entry.reference && entry.name && entry.programme);
+    return { listName, entries };
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') {
+      throw new Error(`Sanctions feed request timed out after ${timeoutMs} ms`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeoutId);
+  }
 }

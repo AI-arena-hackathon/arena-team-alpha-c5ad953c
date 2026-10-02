@@ -97,6 +97,20 @@
       "pattern": "^https?://.+",
       "description": "URL to fetch live sanctions list feed (JSON format)"
     },
+    "SANCTIONS_FEED_TIMEOUT_MS": {
+      "type": "integer",
+      "minimum": 100,
+      "maximum": 60000,
+      "default": 10000,
+      "description": "Request timeout for sanctions feed fetch in milliseconds (default: 10000, max: 60000)"
+    },
+    "SANCTIONS_FEED_MAX_SIZE_BYTES": {
+      "type": "integer",
+      "minimum": 1024,
+      "maximum": 52428800,
+      "default": 5242880,
+      "description": "Maximum response body size for sanctions feed in bytes (default: 5242880 = 5 MB, max: 52428800 = 50 MB)"
+    },
     "ENABLED_EID_PROVIDERS": {
       "type": "string",
       "pattern": "^(?:eidas-gateway|franceconnect)(?:,(?:eidas-gateway|franceconnect))*$",

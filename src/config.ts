@@ -53,6 +53,8 @@ const envSchema = z.object({
 
   SANCTIONS_LIST: z.string().default('eu-consolidated'),
   SANCTIONS_LIST_URL: z.string().url().optional(),
+  SANCTIONS_FEED_TIMEOUT_MS: z.coerce.number().int().positive().default(10_000),
+  SANCTIONS_FEED_MAX_SIZE_BYTES: z.coerce.number().int().positive().default(5_242_880),
 
   // Enabled e-ID providers (comma-separated: eidas-gateway,franceconnect)
   // Defaults to both in development; in production at least one must be explicitly enabled.
@@ -107,6 +109,10 @@ export interface AppConfig {
   sanctionsList: string;
   /** Optional URL to fetch live sanctions list feed. */
   sanctionsListUrl: string | null;
+  /** Request timeout for sanctions feed fetch (ms). */
+  sanctionsFeedTimeoutMs: number;
+  /** Maximum response body size for sanctions feed (bytes). */
+  sanctionsFeedMaxSizeBytes: number;
   /** Enabled e-ID provider IDs (e.g., ['eidas-gateway', 'franceconnect']). */
   enabledEidProviders: string[];
   /** Warnings surfaced by /health so operators know a dev default is in use. */
@@ -297,6 +303,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     eidFranceConnectJwks,
     sanctionsList: parsed.SANCTIONS_LIST,
     sanctionsListUrl: parsed.SANCTIONS_LIST_URL ?? null,
+    sanctionsFeedTimeoutMs: parsed.SANCTIONS_FEED_TIMEOUT_MS,
+    sanctionsFeedMaxSizeBytes: parsed.SANCTIONS_FEED_MAX_SIZE_BYTES,
     enabledEidProviders,
     warnings,
     dynamodbTable,

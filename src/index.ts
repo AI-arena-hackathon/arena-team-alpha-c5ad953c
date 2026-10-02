@@ -1,17 +1,20 @@
 import { buildContainer } from './container';
 import { createApp } from './http/app';
 import { loadConfig } from './config';
-import { loadSanctionsFeed, type SanctionsFeed } from './risk/sanctions';
+import { loadSanctionsFeed, type SanctionsFeed, type LoadSanctionsFeedOptions } from './risk/sanctions';
 
 /**
  * Fetch the live sanctions list when SANCTIONS_LIST_URL is configured. A feed
  * outage must not take the service down, so failures are logged and the caller
  * falls back to the seeded EU consolidated list.
  */
-async function resolveSanctionsFeed(url: string | null): Promise<SanctionsFeed | undefined> {
+async function resolveSanctionsFeed(
+  url: string | null,
+  options: LoadSanctionsFeedOptions = {},
+): Promise<SanctionsFeed | undefined> {
   if (!url) return undefined;
   try {
-    return await loadSanctionsFeed(url);
+    return await loadSanctionsFeed(url, options);
   } catch (error) {
     console.error(
       `[nft-kyc-hub] failed to load sanctions feed ${url}, using seeded list:`,
@@ -28,7 +31,10 @@ async function resolveSanctionsFeed(url: string | null): Promise<SanctionsFeed |
  */
 async function main(): Promise<void> {
   const config = loadConfig(process.env);
-  const sanctionsFeed = await resolveSanctionsFeed(config.sanctionsListUrl);
+  const sanctionsFeed = await resolveSanctionsFeed(config.sanctionsListUrl, {
+    timeoutMs: config.sanctionsFeedTimeoutMs,
+    maxResponseSizeBytes: config.sanctionsFeedMaxSizeBytes,
+  });
   const container = buildContainer({ config, sanctionsFeed });
 
   for (const warning of container.config.warnings) {

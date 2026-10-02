@@ -1,4 +1,4 @@
-# Verification report — turn (eIDAS JWKS validator + live sanctions feed)
+# Verification report — turn (Harden loadSanctionsFeed: timeout + size cap)
 
 | Phase      | Command                   | Result | Exit |
 |------------|---------------------------|--------|------|
@@ -7,36 +7,40 @@
 | Lint       | npm run lint              | PASS   | 0    |
 | Test       | npm test -- --coverage    | PASS   | 0    |
 | Security   | npm audit --omit=dev      | PASS   | 0    |
-| Diff       | git status / git diff --stat | 17 tracked files changed (+628/-36) + 2 new (src/identity/jwksVerifier.ts, src/identity/jwksVerifier.test.ts) | — |
+| Diff       | git status / git diff --stat | 7 tracked files changed (+244/-37) | — |
 
 ## Test evidence
 - command: `npm test -- --coverage`
-- result: 396 passed, 0 failed, 0 skipped — 24 suites, 24 total
-- coverage: statements 90.99%, branches 82.35%, functions 91.58%, lines 91.48%
+- result: 401 passed, 0 failed, 0 skipped — 24 suites, 24 total
+- coverage: statements 91.04%, branches 82.96%, functions 91.72%, lines 91.52%
 - failing test names (if any): none
 
 ## Security notes
-- dependency audit: clean (`npm audit --omit=dev` → 0 vulnerabilities); `jsonwebtoken`, `jwks-rsa`, `@types/jsonwebtoken` reviewed, `@types/jsonwebtoken` moved to devDependencies.
-- secrets: none introduced. `.env.example` documents JWKS/sanctions vars as commented placeholders; no real key material committed. `git diff` scanned for password/secret/token — only variable *names*, no values.
-- signatures: real eIDAS assertions are now verified with RS256 against the vendor's JWKS (issuer + optional audience + expiry checks). HMAC shared-secret remains an explicit fallback and is no longer required in production when a JWKS endpoint is configured.
-- untrusted input: sanctions feed JSON is parsed defensively — only string fields are lifted, rows missing reference/name/programme are dropped, non-object/array bodies rejected, non-2xx status throws. The feed URL is operator configuration (`SANCTIONS_LIST_URL` env, `^https?://` schema pattern), not user input, so no SSRF surface from requests; startup failure falls back to the seeded EU list instead of crashing.
-- no sensitive data logged: feed-fetch errors log only the URL and error message.
+- dependency audit: clean (`npm audit --omit=dev` → 0 vulnerabilities)
+- secrets: none introduced. `.env.example` documents new vars as commented placeholders; no real key material committed
+- DoS hardening: `loadSanctionsFeed` now enforces request timeout (default 10s, configurable via `SANCTIONS_FEED_TIMEOUT_MS`) and response body size limit (default 5 MB, configurable via `SANCTIONS_FEED_MAX_SIZE_BYTES`) — both via streaming read with incremental enforcement, preventing memory exhaustion from oversized responses
+- untrusted input: sanctions feed URL is operator configuration (`SANCTIONS_LIST_URL` env, `^https?://` schema pattern), not user input — no SSRF surface; errors log only URL and error message
+- config schema: new fields validated (`SANCTIONS_FEED_TIMEOUT_MS` 100-60000ms, `SANCTIONS_FEED_MAX_SIZE_BYTES` 1024-52428800 bytes)
+- 6 new tests cover timeout, declared Content-Length limit, streamed body limit, defaults, and custom options
+
+## Code review notes
+- **Correctness**: timeout via AbortController properly cleaned up; size limit enforced on both declared Content-Length and actual streamed bytes; all existing tests pass plus 6 new tests
+- **Readability**: clear helper function `readLimitedJson`, descriptive option names, JSDoc explaining hardening rationale
+- **Architecture**: follows existing options-object pattern; backward compatible; config schema + env vars + container wiring all aligned
+- **Security**: addresses DoS via bounded consumption (timeout + size cap); no secrets; external URL is operator config
+- **Performance**: stream-based reading avoids full response buffering; size limit enforced incrementally
 
 ## Verdict
 READY
 
-Implemented two backlog items:
+Implemented backlog item: "Harden `loadSanctionsFeed`: request timeout and response size cap (DoS guard on the upstream feed)"
 
-1. **Real eIDAS PKI/JWKS validator** (`src/identity/jwksVerifier.ts`, new)
-   - `JwksVerifier` verifies RS256 assertions via `jwks-rsa` + `jsonwebtoken` with an injectable fetcher for tests.
-   - `createEidasGatewayJwksVerifier` / `createFranceConnectJwksVerifier` adapt each vendor's claim shape (incl. `eidas-aalink:` method mapping, FranceConnect `acr`/`amr`/`iss`/`idp` audit claims kept verbatim).
-   - `src/container.ts` prefers JWKS whenever `EID_EIDAS_JWKS_URI`+`ISSUER` (or FranceConnect equivalent) are configured, else falls back to the HMAC adapter.
-   - Config: `EID_*_JWKS_URI/ISSUER/AUDIENCE` added to `config.schema.json`, `src/config.ts`, `.env.example`. Production no longer demands the HMAC secret when JWKS is active.
-   - 21 tests (`src/identity/jwksVerifier.test.ts`) cover valid/expired/future tokens, wrong subject, rogue key, malformed DOB, missing subject, audience, and both vendors.
+Changes:
+1. **src/risk/sanctions.ts** — Added `LoadSanctionsFeedOptions` interface with `timeoutMs` (default 10,000ms) and `maxResponseSizeBytes` (default 5,242,880 bytes). New `readLimitedJson` helper streams response body with incremental size enforcement. Timeout via `AbortController` with proper cleanup.
+2. **src/config.ts** — Added `SANCTIONS_FEED_TIMEOUT_MS` and `SANCTIONS_FEED_MAX_SIZE_BYTES` to Zod schema and `AppConfig` interface with sensible defaults.
+3. **config.schema.json** — Added schema validation for new fields (timeout 100-60,000ms, size 1KB-50MB).
+4. **src/index.ts** — Passes config options through to `loadSanctionsFeed` via `resolveSanctionsFeed`.
+5. **.env.example** — Documents new variables as commented placeholders.
+6. **src/risk/sanctions.test.ts** — Added 6 new tests: timeout enforcement, Content-Length limit, streamed body limit, default options, and custom options.
 
-2. **Live sanctions list feed** (`src/risk/sanctions.ts`)
-   - `loadSanctionsFeed(url, fetchImpl?)` fetches/parses the nightly EU consolidated export (accepts `{ listName, entries }` or a bare array) with defensive validation.
-   - `BuildOptions.sanctionsFeed` is wired through `buildContainer`; `src/index.ts` fetches it at startup and falls back to the seeded list on outage.
-   - 7 tests (`src/risk/sanctions.test.ts`) plus a container integration test proving an injected feed replaces the seeded list.
-
-All changes also updated `src/config.test.ts`, `src/config.schema.test.ts`, `src/container.test.ts`, `src/identity/eidProvider.ts`/`.test.ts`, and `BACKLOG.md`.
+All 401 tests pass. Build, typecheck, lint, and security audit all clean.
